@@ -21,13 +21,28 @@ let primitive_names_to_labels =
    "+", "bin_add"; "*", "bin_mul"; "-", "bin_sub"; "/", "bin_div"; "<", "bin_lt"; "=", "bin_equ"
 (* you can add yours here *)];;
 
+let constant_eq s1 s2 = match s1, s2 with
+  | Void, Void -> true
+  | Sexpr(s1), Sexpr(s2) -> sexpr_eq s1 s2
+  | _ -> false;;
+
+let get_const_address_helper const consts_tbl = 
+  let desired_const = List.find (fun ((c, addr), representation) -> constant_eq const c) consts_tbl in 
+    let ((_,address), _) = desired_const in 
+      string_of_int address;;
+
+let get_fvar_address_helper fvar fvars_tbl = 
+  let desired_const = List.find (fun (other, _) -> String.equal fvar other) fvars_tbl in 
+    let (_, address) = desired_const in 
+      string_of_int address;;
+
 let make_prologue consts_tbl fvars_tbl =
-  let get_const_address const = raise X_not_yet_implemented in
-  let get_fvar_address const = raise X_not_yet_implemented in
+  let get_const_address const = get_const_address_helper const consts_tbl in
+  let get_fvar_address fvar = get_fvar_address_helper fvar fvars_tbl in
   let make_primitive_closure (prim, label) =
 "    MAKE_CLOSURE(rax, SOB_NIL_ADDRESS, " ^ label  ^ ")
     mov [" ^ (get_fvar_address prim)  ^ "], rax" in
-  let make_constant (c, (a, s)) = s in
+  let make_constant ((c, a), s) = s in
   
 "
 ;;; All the macros and the scheme-object printing procedure
@@ -84,13 +99,77 @@ code_fragment:
  
 ";;
 
-let epilogue = raise X_not_yet_implemented;;
+(*WARNING: has high use of the given code!!!!*)
+
+let epilogue = "
+    car: 
+      push rbp
+      mov rbp, rsp
+
+      mov rsi, PVAR(0)
+      CAR rax, rsi 
+      
+      leave
+      ret
+
+    cdr:
+      push rbp
+      mov rbp, rsp
+
+      mov rsi, PVAR(0)
+      CDR rax, rsi 
+      
+      leave
+      ret
+
+    cons:
+      push rbp
+      mov rbp, rsp
+
+      mov rsi, PVAR(0)
+      mov rdi, PVAR(1)
+      MAKE_PAIR(rax, rsi, rdi)
+      
+      leave
+      ret
+
+    set_car: 
+      push rbp
+      mov rbp, rsp
+
+      mov rsi, PVAR(0)
+      CAR rsi, rsi
+
+      mov rdi, PVAR(1)
+      mov [rsi], rdi
+
+      mov rax, SOB_VOID_ADDRESS
+      
+      leave
+      ret
+
+    set_cdr: 
+      push rbp
+      mov rbp, rsp
+
+      mov rsi, PVAR(0)
+      CDR rsi, rsi
+
+      mov rdi, PVAR(1)
+      mov [rsi], rdi
+
+      mov rax, SOB_VOID_ADDRESS
+      
+      leave
+      ret
+    ";;
+
 
 exception X_missing_input_file;;
 
 try
   let infile = Sys.argv.(1) in
-  let code =  (file_to_string "stdlib.scm") ^ (file_to_string infile) in
+  let code =  (* (file_to_string "stdlib.scm") ^  *)(file_to_string infile) in
   let asts = string_to_asts code in
   let consts_tbl = Code_Gen.make_consts_tbl asts in
   let fvars_tbl = Code_Gen.make_fvars_tbl asts in
@@ -100,9 +179,13 @@ try
                            (fun ast -> (generate ast) ^ "\n    call write_sob_if_not_void")
                            asts) in
   let provided_primitives = file_to_string "prims.s" in
+
+  (* print_string ((make_prologue consts_tbl fvars_tbl)  ^
+                  code_fragment ^ "leave\n ret\n" ^
+                    provided_primitives ^ "\n" ^ epilogue) *)
                    
   print_string ((make_prologue consts_tbl fvars_tbl)  ^
-                  code_fragment ^
+                  code_fragment ^ "leave\n ret\n" ^
                     provided_primitives ^ "\n" ^ epilogue)
 
 with Invalid_argument(x) -> raise X_missing_input_file;;
