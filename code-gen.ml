@@ -3,6 +3,36 @@
 open Semantics;;
 open Tag_Parser;;
 
+let var_free_eq_wrapper v1 v2 = 
+    match v1 , v2 with
+        |VarFree(vf1) , VarFree(vf2) -> (compare vf1 vf2)==0
+        | _ , _ -> false;;
+
+let sexpr_eq_wrapper sexp1 sexp2 =
+    match sexp1 , sexp2 with
+            |Sexpr(sexp1) , Sexpr(sexp2) -> (sexpr_eq sexp1 sexp2)
+            | Void , Void ->true
+            | _ , _ -> false;;
+
+let rec retrieve_const_offset c consts = 
+        match consts with
+            | [] -> -999
+            | ((const_sexpr , const_offset) , str)::cdr -> 
+                                    begin 
+                                        if (sexpr_eq_wrapper c const_sexpr) then const_offset
+                                        else (retrieve_const_offset c cdr)
+                                    end;; 
+                                    
+    let rec retrieve_fvar_label v fvars = 
+        match fvars with 
+            | [] -> -999
+            | (var_str , var_offset) :: cdr -> 
+                                                    begin
+                                                        if((compare var_str v)==0) then var_offset
+                                                        else (retrieve_fvar_label v cdr)
+                                                    end;;
+
+
 module type CODE_GEN = sig
   val make_consts_tbl : expr' list -> ((constant * int) * string) list
   val make_fvars_tbl : expr' list -> (string * int) list
@@ -10,36 +40,37 @@ module type CODE_GEN = sig
 end;;
 
 module Code_Gen : CODE_GEN = struct
-
+        
+        let prims_list = ["boolean?" ; "float?"; "integer?"; "pair?"; "null?" ; "char?" ; "vector?" ; "string?" ;
+                                "procedure?" ; "symbol?" ; "string-length" ; "string-ref"; "string-set!" ; "make-string" ;
+                                "vector-length" ; "vector-ref" ; "vector-set!" ; "make-vector" ; "symbol->string" ; 
+                                "char->integer" ; "integer->char" ; "eq?" ; "+"; "*" ; "-" ; "/" ; "<" ; "=" ; "apply" ; 
+                                "car" ; "cdr" ; "cons" ;  "set-car!" ; "set-cdr!"];;
+        
         let rec zip_with lst1 lst2 = match lst1,lst2 with
                                                 | [],_ -> []
                                                 | _, []-> []
                                                 | (x_head :: x_tail),(y_head :: y_tail) -> (x_head , y_head) :: (zip_with x_tail y_tail);;
                                                 
-        let sexpr_eq_wrapper sexp1 sexp2 =
-            match sexp1 , sexp2 with
-                |Sexpr(sexp1) , Sexpr(sexp2) -> (sexpr_eq sexp1 sexp2)
-                | Void , Void ->true
-                | _ , _ -> false;;
         
-        let rec is_member element lst = 
+        let rec is_member element lst comparator = 
             match lst with 
                 | [] -> false
                 | car::cdr -> begin
-                                        if (sexpr_eq_wrapper car element) then true
-                                        else is_member element cdr
+                                        if (comparator car element) then true
+                                        else (is_member element cdr comparator)
                                     end;;
         
-        let rec list_to_set_helper lst set = 
+        let rec list_to_set_helper lst set comparator = 
             match lst with
                 | [] -> set
                 | car::cdr -> begin 
-                                        if(is_member car set) then (list_to_set_helper cdr set)
-                                        else (list_to_set_helper cdr (set@[car]))
+                                        if(is_member car set comparator) then (list_to_set_helper cdr set comparator)
+                                        else (list_to_set_helper cdr (set@[car]) comparator)
                                     end;;
         
-        let list_to_set lst =
-            (list_to_set_helper lst [])
+        let list_to_set lst comparator =
+            (list_to_set_helper lst [] comparator)
     
         let rec extend_const c = 
         match c with
@@ -108,7 +139,7 @@ module Code_Gen : CODE_GEN = struct
     let rec single_const_byte_representation c consts_offsets = 
         match c with
             | Void -> "MAKE_VOID"
-            | Sexpr (Nil) -> "Make_NIL"
+            | Sexpr (Nil) -> "MAKE_NIL"
             | Sexpr (Char(ch)) -> "MAKE_LITERAL_CHAR(\'" ^ (Char.escaped ch) ^ "\')"
             | Sexpr (Bool(b)) -> begin 
                                                 match b with
@@ -135,7 +166,7 @@ module Code_Gen : CODE_GEN = struct
                         (zip_with consts_offsets byte_representation);;
                         
          let make_consts_tbl asts = 
-            (populate_table (list_to_set (extend_constants (list_to_set ([Void ; Sexpr (Nil) ; Sexpr (Bool (false)) ; Sexpr (Bool (true))] @ (List.flatten (List.map collect_sexprs asts)))))));;
+            (populate_table (list_to_set (extend_constants (list_to_set ([Void ; Sexpr (Nil) ; Sexpr (Bool (false)) ; Sexpr (Bool (true))] @ (List.flatten (List.map collect_sexprs asts))) sexpr_eq_wrapper )) sexpr_eq_wrapper ));;
             
     let rec collect_fvars expr = 
         match expr with
@@ -164,34 +195,17 @@ module Code_Gen : CODE_GEN = struct
     
     let add_fvars_index lst = 
         (add_fvars_index_helper lst 0);;
-                
-    let make_fvars_tbl asts = (add_fvars_index (List.flatten (List.map collect_fvars asts)));;
+    
+    let string_lst_to_var_free_lst str = VarFree (str);;
+    
+    let make_fvars_tbl asts = (add_fvars_index (list_to_set ((List.map string_lst_to_var_free_lst prims_list) @ (List.flatten (List.map collect_fvars asts))) var_free_eq_wrapper ));;
     
     let or_counter = ref 0;;
    
     let if_counter = ref 0;;
-    
-    let rec retrieve_const_offset c consts = 
-        match consts with
-            | [] -> -999
-            | ((const_sexpr , const_offset) , str)::cdr -> 
-                                    begin 
-                                        if (sexpr_eq_wrapper c const_sexpr) then const_offset
-                                        else (retrieve_const_offset c cdr)
-                                    end;; 
-                                    
-    let rec retrieve_fvar_label v fvars = 
-        match fvars with 
-            | [] -> -999
-            | (var_str , var_offset) :: cdr -> 
-                                                    begin
-                                                        if((compare var_str v)==0) then var_offset
-                                                        else (retrieve_fvar_label v cdr)
-                                                    end;;
                                                     
     let increment_counter counter= counter := !counter +1;;  
                                         
-                                                    
     let generate consts fvars e = 
             let rec gen expr = 
                 match expr with
@@ -207,17 +221,17 @@ module Code_Gen : CODE_GEN = struct
                     
                     | Set' (Var'(VarParam (_ , minor)) , _val) -> (gen _val) ^ "\n" ^
                                                                                         "mov qword [rbp + 8 * (4 + "^ (string_of_int minor) ^ " )] , rax" ^
-                                                                                        "mov rax , sob_void"
+                                                                                        "mov rax , SOB_VOID_ADDRESS"
                                                                                         
                     | Set'(Var' (VarBound (_ , major , minor)) , _val) -> (gen _val) ^ "\n" ^
                                                                                                     "mov rbx , qword [rbp + 8 * 2]" ^
                                                                                                     "mov rbx , qword [rbx + 8 * " ^ (string_of_int major) ^ " ]" ^
                                                                                                     "mov qword [rbx + 8 * " ^ (string_of_int minor) ^ " ]" ^
-                                                                                                    "mov rax , sob_void"
+                                                                                                    "mov rax , SOB_VOID_ADDRESS"
                                                                                                     
                     | Set'(Var'(VarFree (v)) , _val) -> (gen _val) ^ "\n" ^
-                                                                        "mov qword [ " ^ (string_of_int (retrieve_fvar_label v fvars)) ^ " ] , rax" ^
-                                                                        "mov rax , sob_void"
+                                                                        "mov qword [ fvar_tbl + " ^ (string_of_int (retrieve_fvar_label v fvars)) ^ " ] , rax" ^
+                                                                        "mov rax , SOB_VOID_ADDRESS"
                                                                         
                     |Seq'(_l) ->  let rec gen_seq lst str = 
                                             match lst with
@@ -231,13 +245,13 @@ module Code_Gen : CODE_GEN = struct
                                                 | [] -> str
                                                 | [car] -> str ^ (gen car) ^ "Lexit" ^ (string_of_int !or_counter) ^ ": \n"
                                                 | car :: cdr -> (gen_or cdr (str ^ (gen car) ^ "\n" ^
-                                                                                        "cmp rax , sob_false \n" ^
+                                                                                        "cmp rax , SOB_FALSE_ADDRESS \n" ^
                                                                                         "jne Lexit" ^(string_of_int !or_counter) ^ "\n"))
                                         in (gen_or _l "")
                                         
                     |If'(test , _then , _else) -> (increment_counter if_counter) ; 
                                                             (gen test) ^ "\n" ^
-                                                            "cmp rax , sob_false \n" ^
+                                                            "cmp rax , SOB_FALSE_ADDRESS \n" ^
                                                             "je Lelse" ^ (string_of_int !if_counter) ^ "\n" ^
                                                             (gen _then) ^ "\n" ^
                                                             "jmp Lexit" ^ (string_of_int !if_counter) ^ "\n" ^
@@ -252,8 +266,42 @@ module Code_Gen : CODE_GEN = struct
                                                                     "push rax \n" ^ 
                                                                     (gen (Var'(v))) ^ "\n" ^
                                                                     "pop qword [rax] \n" ^
-                                                                    "mov rax , sob_void"
+                                                                    "mov rax , SOB_VOID_ADDRESS"
+                                                                    
+                    |Box'(v) -> (gen (Var'(v))) ^ "\n" ^
+                                    "push rdx \n" ^
+                                    "MALLOC rdx , WORD_SIZE \n" ^
+                                    "mov [rdx] , rax \n"^
+                                    "mov rax , rdx \n" ^
+                                    "pop rdx"
+                    
+                    |Def' (Var' (VarFree(v)) , _val) -> (gen _val) ^ "\n" ^
+                                                                        "mov qword [ fvar_tbl + " ^ (string_of_int (retrieve_fvar_label v fvars)) ^ " ] , rax \n" ^
+                                                                        "mov rax , SOB_VOID_ADDRESS"
                                                                         
+                    |Applic'(_e , _args) -> (applic_gen _e _args)
+                    
+                    | ApplicTP' (_e , _args) -> (applic_tp_gen _e _args)
+                    
+        and applic_gen _e _args = 
+            let folder element acc = (acc ^ (gen element)^ "\n" ^ "push rax \n") in
+                let push_args_str = (List.fold_right folder _args "") in
+                    push_args_str ^ "push " ^ (string_of_int (List.length _args)) ^ "\n" ^
+                    "push qword [rax + TYPE_SIZE] \n" ^
+                    "call qword [rax + TYPE_SIZE + WORD_SIZE] \n" ^
+                    "add rsp , 8 * 1 \n" ^
+                    "pop rbx \n" ^
+                    "shl rbx , 3 \n" ^
+                    "add rsp , rbx \n"
+                    
+        and applic_tp_gen _e _args = 
+            let folder element acc = (acc ^ (gen element) ^ "\n" ^ "push rax \n") in
+                let push_args_str = (List.fold_right folder _args "") in
+                    push_args_str ^ "push " ^ (string_of_int (List.length _args)) ^ "\n" ^
+                    "push qword [rax + TYPE_SIZE] \n" ^
+                    "push qword [rbp + WORD_SIZE] \n" ^
+                    ""
+                                                 
         in
         gen e;;
         
@@ -357,9 +405,11 @@ let rec printThreesomesList lst =
     | [] -> ()
     | ((name, index), str)::cdr -> print_string (print_const name); print_string " , "; print_int index ; print_string (" "^str^" \n"); printThreesomesList cdr;;
     
-    (printThreesomesList (make_consts_tbl [(run_semantics (tag_parse_expression(Reader.read_sexpr("
-    (list \"ab\" '(1 2 3) 'c 'ab)
-    "))))]));;
+   (* let bgbg = run_semantics (tag_parse_expression(Reader.read_sexpr("
+    (+ 5 6)
+    ")));;
+    
+    (print_string (generate (make_consts_tbl [bgbg]) (make_fvars_tbl [bgbg]) (bgbg)));; *)
 
 end;;
 

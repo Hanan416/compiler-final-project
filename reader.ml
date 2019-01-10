@@ -226,7 +226,7 @@ let rec _nested_pair_dlst s_lst tl = match s_lst with
                                 
 let rec _sexpr_ s = 
 
-    let parser_lst = [_auto_paren_balance_ ; _scientific_notation_; _bool_; _char_ ;_number_;_string_; _symbol_; _dotted_list_ ;_list_; _bracket_notation_ ; _vector_; _qoute_; _quasi_qoute_; _unqouted_; _unqoute_and_spliced_] in
+    let parser_lst = [_list_ ; _dotted_list_ ; _auto_paren_balance_ ; _bracket_notation_;_bool_; _char_ ; _scientific_notation_;_number_;_string_; _symbol_;  _vector_; _qoute_; _quasi_qoute_; _unqouted_; _unqoute_and_spliced_] in
   
     let trimmed_parser_lst = List.map _trim_ parser_lst in
     
@@ -297,7 +297,7 @@ let rec _sexpr_ s =
         _packed_ s
     
     and _number_ s = 
-        let parse = (disj_list [_float_;_hex_float_;_integer_ ; _hex_integer_ ]) in
+        let parse = (not_followed_by (disj_list [_float_;_hex_float_;_integer_ ; _hex_integer_ ]) _symbol_) in
         let _packed_ = pack parse (fun(x) -> x) in 
         _packed_ s
     
@@ -325,7 +325,7 @@ let rec _sexpr_ s =
     (* Parser for dotted list : *)
     
     and _dotted_list_ s = 
-        let dot = (char '.') in
+        let dot = char '.' in
         let parse = caten (caten (caten (caten ( _lparen_) (plus(_sexpr_))) (dot) ) (_sexpr_)) ( _rparen_) in
         let _packed_ = pack parse (fun((((lp,s_lst),d),tl),rp)-> (_nested_pair_dlst s_lst tl)) in 
         _packed_ s
@@ -373,7 +373,7 @@ let rec _sexpr_ s =
     (* Parser for sientific notation : *)
         
     and _scientific_notation_ s =
-        let parse = (not_followed_by (caten (caten (disj _float_ _integer_) (char_ci 'e')) _integer_) nt_any) in
+        let parse = (not_followed_by (caten (caten (disj _float_ _integer_) (char_ci 'e')) _integer_) _symbol_) in
         let _packed_ = pack parse (fun ((first,e) , second) -> match first , second with
                                                                 |Number(Float(f_cont)) , Number(Int(s_cont)) -> Number(Float(f_cont *. (10.0 ** float_of_int(s_cont))))
                                                                 |Number(Int(f_cont)) , Number(Int(s_cont)) -> Number(Float(float_of_int(f_cont) *. (10.0 ** float_of_int(s_cont))))
@@ -404,7 +404,7 @@ let rec _sexpr_ s =
         _packed_ s
     
     and _reg_sexpr_ s= 
-        let parse = (disj_list [(diff _sexpr_ _auto_paren_balance_) ; _open_dotted_list_; _open_list_  ; _open_vector_]) in 
+        let parse = (disj_list [(diff _sexpr_ _auto_paren_balance_) ; _open_dotted_list_;_open_list_  ; _open_vector_]) in 
         let _packed_ = (pack parse (fun (x)->x)) in
         _packed_ s
         
