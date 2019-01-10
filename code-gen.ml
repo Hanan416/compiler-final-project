@@ -189,9 +189,123 @@ module Code_Gen : CODE_GEN = struct
                                                         else (retrieve_fvar_label v cdr)
                                                     end;;
                                                     
-    let increment_counter counter= counter := !counter +1;;  
-                                        
-                                                    
+    let increment_counter counter= counter := !counter +1;;
+
+let generate_lambda_s params generated_body = 
+    (Printf.sprintf
+"
+;get pointer to prev_env:
+mov rax, [rbp + WORD_SIZE * 2]
+
+;check for type of env: 
+;the length of the env will be in rbx
+
+cmp rax, T_VECTOR
+
+jne .L_undefined:
+
+    .L_vector:
+        VECTOR_LENGTH rbx rax
+        inc rbx
+
+        ;creating the lambda env:
+        mov rdx, qword [rbp + 3 * WORD_SIZE] ;holds the number of params
+
+        ;allocating and setting a vector to hold the params_env:
+        lea rdi, [rdx * WORD_SIZE + WORD_SIZE + TYPE_SIZE] 
+        MALLOC rdi, rdi ;holds the allocated memory for the new env
+        mov byte [rdi], T_VECTOR
+        mov qword [rdi+TYPE_SIZE], rdx
+        add rdi, WORD_SIZE+TYPE_SIZE
+
+        mov r10, qword [rbp + 3 * WORD_SIZE] ;num of arguments
+        mov r9, qword [rbp + 4 * WORD_SIZE] ; first arguement
+
+        jmp .L_len_exit
+
+    .L_undefined:
+        mov rbx, 1 
+        mov rdx, 0
+        ;allocating and setting a vector to hold the params_env:
+        lea rdi, [rdx * WORD_SIZE + WORD_SIZE + TYPE_SIZE] 
+        MALLOC rdi, rdi ;holds the allocated memory for the new env
+        mov byte [rdi], T_VECTOR
+        mov qword [rdi+TYPE_SIZE], rdx
+        add rdi, WORD_SIZE+TYPE_SIZE
+        mov r10, 0
+           
+
+.L_len_exit:
+
+push rcx
+mov rcx, 0
+
+
+.insert_params_loop:
+    cmp rcx, r10
+    jz insert_params_loop_exit
+    mov r11, qword [r9 + rcx*WORD_SIZE]
+    mov qword [rdi+rcx*WORD_SIZE], r11
+    inc rcx
+    jmp .insert_params_loop
+
+.insert_params_loop_exit:
+
+pop rcx
+
+;allocating and setting a vector to hold the external_env:
+lea rsi, [rbx * WORD_SIZE + WORD_SIZE + TYPE_SIZE]
+MALLOC rsi, rsi
+mov byte [rsi], T_VECTOR
+mov qword [rsi+TYPE_SIZE], rbx
+
+add rsi, WORD_SIZE + TYPE_SIZE
+; rcx - i, r9 - j 
+
+push rcx 
+
+mov rcx, 0
+mov r9, 1
+dec rbx
+
+.insert_data_loop:
+cmp rcx, rbx
+je .insert_data_loop_exit
+
+    ;ExtEnv[r9] = Env[rcx]
+    mov r8, qword [rax + rcx * WORD_SIZE]
+    mov qword [rsi + r9*WORD_SIZE], r8
+
+    inc rcx
+    inc r9
+
+jmp .insert_data_loop
+
+.insert_data_loop_exit :
+
+pop rcx
+inc rbx
+
+mov qword [rsi], rdi
+sub rsi, TYPE_SIZE + WORD_SIZE
+
+MAKE_CLOSURE(rax, rsi, Lcode)
+
+jmp Lcont
+
+Lcode: 
+push rbp 
+mov rbp, rsp
+%s
+leave 
+ret
+
+Lcont:
+" 
+generated_body) ;;
+
+
+                                            
     let generate consts fvars e = 
             let rec gen expr = 
                 match expr with
@@ -244,6 +358,10 @@ module Code_Gen : CODE_GEN = struct
                                                             "Lelse" ^ (string_of_int !if_counter) ^ ": \n" ^
                                                             (gen _else) ^ "\n" ^
                                                             "Lexit" ^ (string_of_int !if_counter) ^ ": \n"
+
+
+                    |LambdaSimple'(params, body) -> let generated_body = gen body in (generate_lambda_s params generated_body)
+
                                                             
                     |BoxGet' (v) -> (gen (Var'(v))) ^ "\n" ^
                                             "mov rax , qword [rax]"

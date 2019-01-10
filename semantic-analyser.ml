@@ -470,7 +470,7 @@ let rec box_set_rec e = match e with
     											let sub_filtered_params = set_diff filtered_params [var_name] in 
     												Def'(Var'(_var), (boxing_proc_traverse _val sub_filtered_params))
 
-   	and boxing_proc_lambda_s_handler params body filtered_params = let sub_filtered_params = (printStringList filtered_params); print_string "; "; (printStringList params); 
+   	and boxing_proc_lambda_s_handler params body filtered_params = let sub_filtered_params = (* (printStringList filtered_params); print_string "; "; (printStringList params); *) 
    																	set_diff filtered_params params in
    																	(* (printStringList filtered_params); *)
    																	LambdaSimple'(params, (boxing_proc_traverse body sub_filtered_params))
@@ -503,10 +503,10 @@ let run_semantics expr =
                                 (lambda (y) 
                                   (set! x y)))))"))));;  *)
 
-(run_semantics (LambdaSimple (["x"],
+(* (run_semantics (LambdaSimple (["x"],
       Or [Applic (LambdaOpt (["y"], "z", Applic (LambdaSimple ([], Applic (LambdaSimple ([], 
           Applic (Var "+", [Var "x"; Var "z"])), [])), [])), [Var "x"; Const (Sexpr (Number (Int 1)))]); 
-          LambdaSimple ([], Set (Var "x", Var "w")); Applic (Var "w", [Var "w"])])));;
+          LambdaSimple ([], Set (Var "x", Var "w")); Applic (Var "w", [Var "w"])])));; *)
 (* print_string(printThreesomesList((get_occ_tuple "x" (ApplicTP'(VarFree("list" ),[ LambdaSimple'([  ],VarBound("x" 0 0)); LambdaSimple'([ y ],Set(VarBound("x" 0 0),VarParam("y", 0))) ])))))       *)
 
 end;; (* struct Semantics *)
