@@ -18,30 +18,16 @@ let primitive_names_to_labels =
    "vector-length", "vector_length"; "vector-ref", "vector_ref"; "vector-set!", "vector_set";
    "make-vector", "make_vector"; "symbol->string", "symbol_to_string"; 
    "char->integer", "char_to_integer"; "integer->char", "integer_to_char"; "eq?", "is_eq";
-   "+", "bin_add"; "*", "bin_mul"; "-", "bin_sub"; "/", "bin_div"; "<", "bin_lt"; "=", "bin_equ"
-(* you can add yours here *)];;
+   "+", "bin_add"; "*", "bin_mul"; "-", "bin_sub"; "/", "bin_div"; "<", "bin_lt"; "=", "bin_equ";
+    "apply" , "apply" ; "car" , "car" ; "cdr" , "cdr" ; "cons" , "cons" ; "set-car!" , "set_car" ; "set-cdr!" , "set_cdr"];;
 
-let constant_eq s1 s2 = match s1, s2 with
-  | Void, Void -> true
-  | Sexpr(s1), Sexpr(s2) -> sexpr_eq s1 s2
-  | _ -> false;;
 
-let get_const_address_helper const consts_tbl = 
-  let desired_const = List.find (fun ((c, addr), representation) -> constant_eq const c) consts_tbl in 
-    let ((_,address), _) = desired_const in 
-      string_of_int address;;
-
-let get_fvar_address_helper fvar fvars_tbl = 
-  let desired_const = List.find (fun (other, _) -> String.equal fvar other) fvars_tbl in 
-    let (_, address) = desired_const in 
-      string_of_int address;;
-
-let make_prologue consts_tbl fvars_tbl =
-  let get_const_address const = get_const_address_helper const consts_tbl in
-  let get_fvar_address fvar = get_fvar_address_helper fvar fvars_tbl in
+let make_prologue consts_tbl fvars_tbl = 
+  let get_const_address const = (string_of_int (retrieve_const_offset const consts_tbl)) in
+  let get_fvar_address const = (string_of_int (retrieve_fvar_label const fvars_tbl)) in
   let make_primitive_closure (prim, label) =
 "    MAKE_CLOSURE(rax, SOB_NIL_ADDRESS, " ^ label  ^ ")
-    mov [" ^ (get_fvar_address prim)  ^ "], rax" in
+    mov [fvar_tbl + " ^ (get_fvar_address prim)  ^ "], rax" in
   let make_constant ((c, a), s) = s in
   
 "
@@ -164,27 +150,21 @@ let epilogue = "
       ret
     ";;
 
-
 exception X_missing_input_file;;
 
 try
   let infile = Sys.argv.(1) in
-  let code =  (* (file_to_string "stdlib.scm") ^  *)(file_to_string infile) in
+  let code =  (*(file_to_string "stdlib.scm") ^*) (file_to_string infile) in
   let asts = string_to_asts code in
   let consts_tbl = Code_Gen.make_consts_tbl asts in
   let fvars_tbl = Code_Gen.make_fvars_tbl asts in
   let generate = Code_Gen.generate consts_tbl fvars_tbl in
   let code_fragment = String.concat "\n\n"
                         (List.map
-                           (fun ast -> (generate ast) ^ "\n    call write_sob_if_not_void")
+                           (fun ast -> (generate ast) ^ "\n    call write_sob_if_not_void \n")
                            asts) in
-  let provided_primitives = file_to_string "prims.s" in
-
-  (* print_string ((make_prologue consts_tbl fvars_tbl)  ^
-                  code_fragment ^ "leave\n ret\n" ^
-                    provided_primitives ^ "\n" ^ epilogue) *)
-                   
-  print_string ((make_prologue consts_tbl fvars_tbl)  ^
+  let provided_primitives = file_to_string "prims.s" in                   
+    print_string ((make_prologue consts_tbl fvars_tbl)  ^
                   code_fragment ^ "leave\n ret\n" ^
                     provided_primitives ^ "\n" ^ epilogue)
 
