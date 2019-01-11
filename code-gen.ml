@@ -391,8 +391,6 @@ module Code_Gen : CODE_GEN = struct
     ;the last opt is overridden with the list of opts
     mov [rbp+r9], rdx
 
-    
-
     push rcx
     ;holds the offset of the last fixed param
     xor rcx rcx
@@ -557,8 +555,6 @@ module Code_Gen : CODE_GEN = struct
                     |LambdaOpt'(params, opt, body) -> let generated_body = gen body in 
                                                             (generate_lambda (params @ [opt]) generated_body (stack_adjustment params !lambda_counter) !lambda_counter)
 
-                    | LambdaSimple'(params, body) -> let generated_body = gen body in (generate_lambda_s params generated_body)
-
                                                             
                     | BoxGet' (v) -> (gen (Var'(v))) ^ "\n" ^
                                             "mov rax , qword [rax]"
@@ -618,7 +614,7 @@ module Code_Gen : CODE_GEN = struct
                     "sub rbx , rax \n" ^
                     "pop rax \n" ^
                     "mov rbx , [rbx] \n" ^
-                    "mov [rbp + WORD_SIZE * rax] , rbx" ^
+                    "mov [rbp + WORD_SIZE * rax] , rbx\n" ^
                     "cmp rcx , " ^ (string_of_int ((List.length _args) + 3)) ^ "\n" ^
                     "jne applic_tp_loop" ^ (*applic_tp_counter ^*) "\n" ^
                     ""
