@@ -147,6 +147,12 @@ module Code_Gen : CODE_GEN = struct
             | [] -> acc_str
             | [car] -> acc_str ^ (string_of_int car)
             | car :: cdr -> (ascii_list_to_string cdr (acc_str ^ (string_of_int car) ^ " , "));; 
+            
+    let rec create_vector_offsets_string consts_offsets lst acc_str = 
+        match lst with
+        | [] -> acc_str
+        | [car] -> acc_str ^ ("const_tbl + " ^ (string_of_int (lookup_offset car consts_offsets)))
+        | car :: cdr -> (create_vector_offsets_string consts_offsets cdr (acc_str ^ " const_tbl + " ^(string_of_int (lookup_offset car consts_offsets) ^ " , ")));;
     
     let rec single_const_byte_representation c consts_offsets = 
         match c with
@@ -159,11 +165,11 @@ module Code_Gen : CODE_GEN = struct
                                                     |false -> "MAKE_BOOL(0)"
                                             end
             | Sexpr(Number(Int(i))) -> "MAKE_LITERAL_INT(" ^ (string_of_int i) ^ ")"
-            | Sexpr(Number(Float(flt))) -> "MAKE_LITERAL_FLOAT(" ^ (string_of_float flt) ^ ")"
+            | Sexpr(Number(Float(flt))) -> "MAKE_LITERAL_FLOAT(" ^ (string_of_float flt) ^ ")" 
             | Sexpr(String(str)) -> "MAKE_LITERAL_STRING " ^ (ascii_list_to_string (string_to_ascii_enc str) "")
             | Sexpr(Symbol(sym)) -> "MAKE_LITERAL_SYMBOL(const_tbl+" ^ (string_of_int (lookup_offset (String(sym)) consts_offsets)) ^ ")"
-            | Sexpr(Vector(lst)) -> "MAKE_LITERAL_VECTOR"
-            | Sexpr(Pair(car , cdr)) -> "MAKE_LITERAL_PAIR(const_tbl+" ^ (string_of_int (lookup_offset car consts_offsets)) ^ ", const_tbl +" ^(string_of_int (lookup_offset cdr consts_offsets)) ^ ")";;
+            | Sexpr(Vector(lst)) -> "MAKE_LITERAL_VECTOR " ^ (create_vector_offsets_string consts_offsets lst "")
+            | Sexpr(Pair(car , cdr)) -> "MAKE_LITERAL_PAIR(const_tbl+" ^ (string_of_int (lookup_offset car consts_offsets)) ^ ", const_tbl + " ^(string_of_int (lookup_offset cdr consts_offsets)) ^ ")";;
             
         
          let rec get_byte_representation consts_lst consts_offsets = 
@@ -215,6 +221,8 @@ module Code_Gen : CODE_GEN = struct
     let or_counter = ref 0;;
    
     let if_counter = ref 0;;
+    
+    let applic_tp_counter = ref 0;;
                                                     
     let increment_counter counter= counter := !counter +1;;
 
@@ -433,13 +441,17 @@ module Code_Gen : CODE_GEN = struct
                     push_args_str ^ "push " ^ (string_of_int (List.length _args)) ^ "\n" ^
                     "push qword [rax + TYPE_SIZE] \n" ^
                     "push qword [rbp + WORD_SIZE] \n" ^
+                    "mov r15 , rax \n" ^
+                    "mov r14 , [rbp] \n" ^
+                    "mov r13 , PARAM_COUNT \n" ^
                     
                     "push rax \n"^
-                    "mov rax , PARAM_COUNT \n" ^
-                    "add rax , 4 \n" ^
+                    "push rbx \n" ^
                     "push rcx \n" ^
+                    "mov rax , PARAM_COUNT \n" ^
+                    "add rax , 4 \n" ^                    
                     "mov rcx , 0 \n" ^
-                    "applic_tp_loop" ^ (*applic_tp_counter ^*) ": \n" ^
+                    "applic_tp_loop" ^ (string_of_int !applic_tp_counter) ^ ": \n" ^
                     "inc rcx \n" ^
                     "dec rax \n" ^
                     "push rax \n" ^
@@ -449,10 +461,24 @@ module Code_Gen : CODE_GEN = struct
                     "sub rbx , rax \n" ^
                     "pop rax \n" ^
                     "mov rbx , [rbx] \n" ^
-                    "mov [rbp + WORD_SIZE * rax] , rbx" ^
+                    "mov [rbp + WORD_SIZE * rax] , rbx \n" ^
                     "cmp rcx , " ^ (string_of_int ((List.length _args) + 3)) ^ "\n" ^
-                    "jne applic_tp_loop" ^ (*applic_tp_counter ^*) "\n" ^
-                    ""
+                    "jne applic_tp_loop" ^ (string_of_int !applic_tp_counter) ^ "\n" ^
+                    
+                    "pop rcx \n" ^
+                    "pop rbx \n" ^
+                    "pop rax \n" ^
+                    
+                    "push rax \n" ^
+                    "mov rax , WORD_SIZE \n" ^
+                    "mul r13 \n" ^
+                    "add rax , WORD_SIZE * 4 \n" ^
+                    "mov r12 , rax \n" ^
+                    "pop rax \n" ^
+                    "add rsp , r12 \n" ^
+                    
+                    "mov rbp , r14 \n" ^
+                    "jmp [r15 + TYPE_SIZE + WORD_SIZE] \n"
                     
         in
         gen e;;
