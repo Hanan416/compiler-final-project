@@ -105,8 +105,7 @@ module Code_Gen : CODE_GEN = struct
                 | LambdaOpt' (_vars , _opt , _body) -> (collect_sexprs _body)
                 | Applic' (_e , _args) -> (collect_sexprs _e) @ (List.flatten (List.map collect_sexprs _args))
                 | ApplicTP' (_e , _args) -> (collect_sexprs _e) @ (List.flatten (List.map collect_sexprs _args));;
-                
-    
+                    
     let const_size const =
         match const with
             |Void -> 1
@@ -136,6 +135,19 @@ module Code_Gen : CODE_GEN = struct
                                                             end
         |(Void , _) :: cdr -> (lookup_offset c cdr);;
     
+    let my_int_of_char c = 
+        (int_of_char c);;
+    
+    let string_to_ascii_enc str=
+        let char_list =  (string_to_list str) in
+            List.map my_int_of_char char_list;;
+    
+    let rec ascii_list_to_string lst acc_str= 
+        match lst with 
+            | [] -> acc_str
+            | [car] -> acc_str ^ (string_of_int car)
+            | car :: cdr -> (ascii_list_to_string cdr (acc_str ^ (string_of_int car) ^ " , "));; 
+    
     let rec single_const_byte_representation c consts_offsets = 
         match c with
             | Void -> "MAKE_VOID"
@@ -148,7 +160,7 @@ module Code_Gen : CODE_GEN = struct
                                             end
             | Sexpr(Number(Int(i))) -> "MAKE_LITERAL_INT(" ^ (string_of_int i) ^ ")"
             | Sexpr(Number(Float(flt))) -> "MAKE_LITERAL_FLOAT(" ^ (string_of_float flt) ^ ")"
-            | Sexpr(String(str)) -> "MAKE_LITERAL_STRING(\"" ^ str ^"\")"
+            | Sexpr(String(str)) -> "MAKE_LITERAL_STRING " ^ (ascii_list_to_string (string_to_ascii_enc str) "")
             | Sexpr(Symbol(sym)) -> "MAKE_LITERAL_SYMBOL(const_tbl+" ^ (string_of_int (lookup_offset (String(sym)) consts_offsets)) ^ ")"
             | Sexpr(Vector(lst)) -> "MAKE_LITERAL_VECTOR"
             | Sexpr(Pair(car , cdr)) -> "MAKE_LITERAL_PAIR(const_tbl+" ^ (string_of_int (lookup_offset car consts_offsets)) ^ ", const_tbl +" ^(string_of_int (lookup_offset cdr consts_offsets)) ^ ")";;
@@ -327,7 +339,7 @@ module Code_Gen : CODE_GEN = struct
                 match expr with
                     | Const' (c) -> "mov rax, const_tbl + " ^ (string_of_int (retrieve_const_offset c consts))
                     
-                    | Var' (VarParam (_ , minor)) -> "mov rax , qword [rbp + 8 * (4 + "^(string_of_int minor)^" )"
+                    | Var' (VarParam (_ , minor)) -> "mov rax , qword [rbp + 8 * (4 + "^(string_of_int minor)^" )]"
                     
                     | Var'(VarBound (_ , major , minor)) -> "mov rax , qword [rbp + 8 * 2] \n " ^
                                                                                 "mov rax , qword [rax + 8 * " ^ (string_of_int major) ^" ]\n" ^
@@ -336,17 +348,17 @@ module Code_Gen : CODE_GEN = struct
                     | Var' (VarFree (v)) -> "mov rax , qword [fvar_tbl + " ^ (string_of_int (retrieve_fvar_label v fvars)) ^ " ]"
                     
                     | Set' (Var'(VarParam (_ , minor)) , _val) -> (gen _val) ^ "\n" ^
-                                                                                        "mov qword [rbp + 8 * (4 + "^ (string_of_int minor) ^ " )] , rax" ^
+                                                                                        "mov qword [rbp + 8 * (4 + "^ (string_of_int minor) ^ " )] , rax\n" ^
                                                                                         "mov rax , SOB_VOID_ADDRESS"
                                                                                         
                     | Set'(Var' (VarBound (_ , major , minor)) , _val) -> (gen _val) ^ "\n" ^
-                                                                                                    "mov rbx , qword [rbp + 8 * 2]" ^
-                                                                                                    "mov rbx , qword [rbx + 8 * " ^ (string_of_int major) ^ " ]" ^
-                                                                                                    "mov qword [rbx + 8 * " ^ (string_of_int minor) ^ " ]" ^
+                                                                                                    "mov rbx , qword [rbp + 8 * 2]\n" ^
+                                                                                                    "mov rbx , qword [rbx + 8 * " ^ (string_of_int major) ^ " ]\n" ^
+                                                                                                    "mov qword [rbx + 8 * " ^ (string_of_int minor) ^ " ]\n" ^
                                                                                                     "mov rax , SOB_VOID_ADDRESS"
                                                                                                     
                     | Set'(Var'(VarFree (v)) , _val) -> (gen _val) ^ "\n" ^
-                                                                        "mov qword [ fvar_tbl + " ^ (string_of_int (retrieve_fvar_label v fvars)) ^ " ] , rax" ^
+                                                                        "mov qword [ fvar_tbl + " ^ (string_of_int (retrieve_fvar_label v fvars)) ^ " ] , rax\n" ^
                                                                         "mov rax , SOB_VOID_ADDRESS"
                                                                         
                     |Seq'(_l) ->  let rec gen_seq lst str = 
@@ -355,17 +367,17 @@ module Code_Gen : CODE_GEN = struct
                                                 | car :: cdr -> (gen_seq cdr (str ^ (gen car) ^ "\n")) 
                                         in (gen_seq _l "") 
                                         
-                    |Or' (_l) -> (increment_counter or_counter) ;
+                    | Or' (_l) -> (increment_counter or_counter) ;
                                         let rec gen_or lst str = 
                                             match lst with
                                                 | [] -> str
-                                                | [car] -> str ^ (gen car) ^ "Lexit" ^ (string_of_int !or_counter) ^ ": \n"
+                                                | [car] -> str ^ (gen car) ^ "\nLexit"  ^ (string_of_int !or_counter) ^ ": \n"
                                                 | car :: cdr -> (gen_or cdr (str ^ (gen car) ^ "\n" ^
                                                                                         "cmp rax , SOB_FALSE_ADDRESS \n" ^
                                                                                         "jne Lexit" ^(string_of_int !or_counter) ^ "\n"))
                                         in (gen_or _l "")
                                         
-                    |If'(test , _then , _else) -> (increment_counter if_counter) ; 
+                    | If'(test , _then , _else) -> (increment_counter if_counter) ; 
                                                             (gen test) ^ "\n" ^
                                                             "cmp rax , SOB_FALSE_ADDRESS \n" ^
                                                             "je Lelse" ^ (string_of_int !if_counter) ^ "\n" ^
@@ -376,30 +388,30 @@ module Code_Gen : CODE_GEN = struct
                                                             "Lexit" ^ (string_of_int !if_counter) ^ ": \n"
 
 
-                    |LambdaSimple'(params, body) -> let generated_body = gen body in (generate_lambda_s params generated_body)
+                    | LambdaSimple'(params, body) -> let generated_body = gen body in (generate_lambda_s params generated_body)
 
                                                             
-                    |BoxGet' (v) -> (gen (Var'(v))) ^ "\n" ^
+                    | BoxGet' (v) -> (gen (Var'(v))) ^ "\n" ^
                                             "mov rax , qword [rax]"
                                             
-                    |BoxSet'(v , box_set_expr) -> (gen box_set_expr) ^ "\n" ^
+                    | BoxSet'(v , box_set_expr) -> (gen box_set_expr) ^ "\n" ^
                                                                     "push rax \n" ^ 
                                                                     (gen (Var'(v))) ^ "\n" ^
                                                                     "pop qword [rax] \n" ^
                                                                     "mov rax , SOB_VOID_ADDRESS"
                                                                     
-                    |Box'(v) -> (gen (Var'(v))) ^ "\n" ^
+                    | Box'(v) -> (gen (Var'(v))) ^ "\n" ^
                                     "push rdx \n" ^
                                     "MALLOC rdx , WORD_SIZE \n" ^
                                     "mov [rdx] , rax \n"^
                                     "mov rax , rdx \n" ^
                                     "pop rdx"
                     
-                    |Def' (Var' (VarFree(v)) , _val) -> (gen _val) ^ "\n" ^
+                    | Def' (Var' (VarFree(v)) , _val) -> (gen _val) ^ "\n" ^
                                                                         "mov qword [ fvar_tbl + " ^ (string_of_int (retrieve_fvar_label v fvars)) ^ " ] , rax \n" ^
                                                                         "mov rax , SOB_VOID_ADDRESS"
                                                                         
-                    |Applic'(_e , _args) -> (applic_gen _e _args)
+                    | Applic'(_e , _args) -> (applic_gen _e _args)
                     
                     | ApplicTP' (_e , _args) -> (applic_tp_gen _e _args)
                     
@@ -407,6 +419,7 @@ module Code_Gen : CODE_GEN = struct
             let folder element acc = (acc ^ (gen element)^ "\n" ^ "push rax \n") in
                 let push_args_str = (List.fold_right folder _args "") in
                     push_args_str ^ "push " ^ (string_of_int (List.length _args)) ^ "\n" ^
+                    (gen _e) ^ "\n" ^
                     "push qword [rax + TYPE_SIZE] \n" ^
                     "call qword [rax + TYPE_SIZE + WORD_SIZE] \n" ^
                     "add rsp , 8 * 1 \n" ^
@@ -420,8 +433,27 @@ module Code_Gen : CODE_GEN = struct
                     push_args_str ^ "push " ^ (string_of_int (List.length _args)) ^ "\n" ^
                     "push qword [rax + TYPE_SIZE] \n" ^
                     "push qword [rbp + WORD_SIZE] \n" ^
+                    
+                    "push rax \n"^
+                    "mov rax , PARAM_COUNT \n" ^
+                    "add rax , 4 \n" ^
+                    "push rcx \n" ^
+                    "mov rcx , 0 \n" ^
+                    "applic_tp_loop" ^ (*applic_tp_counter ^*) ": \n" ^
+                    "inc rcx \n" ^
+                    "dec rax \n" ^
+                    "push rax \n" ^
+                    "mov rax , WORD_SIZE \n" ^
+                    "mov rbx , rbp \n"^
+                    "mul rcx \n" ^
+                    "sub rbx , rax \n" ^
+                    "pop rax \n" ^
+                    "mov rbx , [rbx] \n" ^
+                    "mov [rbp + WORD_SIZE * rax] , rbx" ^
+                    "cmp rcx , " ^ (string_of_int ((List.length _args) + 3)) ^ "\n" ^
+                    "jne applic_tp_loop" ^ (*applic_tp_counter ^*) "\n" ^
                     ""
-                                                 
+                    
         in
         gen e;;
         
