@@ -70,10 +70,8 @@ main:
     push qword SOB_NIL_ADDRESS
     push qword T_UNDEFINED
     push rsp
-
-    call code_fragment
-    add rsp, 4*8
-    ret
+    mov rbp, rsp
+    jmp code_fragment
 
 code_fragment:
     ;; Set up the primitive stdlib fvars:
