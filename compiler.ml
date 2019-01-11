@@ -1,5 +1,7 @@
 #use "code-gen.ml";;
 
+
+
 let file_to_string f =
   let ic = open_in f in
   let s = really_input_string ic (in_channel_length ic) in
@@ -72,11 +74,9 @@ main:
     push qword SOB_NIL_ADDRESS
     push qword T_UNDEFINED
     push rsp
+    mov rbp, rsp
+    jmp code_fragment
 
-    call code_fragment
-    add rsp, 4*8
-    leave
-    ret
 
 code_fragment:
     push rbp

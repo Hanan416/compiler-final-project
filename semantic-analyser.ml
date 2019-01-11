@@ -395,9 +395,9 @@ let rec box_set_rec e = match e with
 				| Applic' (app, args) -> (applic_handler app args)
 				| ApplicTP'(app, args)-> (applic_handler app args)
 				| Box'(_) -> ret_occ_tuple
-			    | BoxGet'(_) -> ret_occ_tuple
-			    | BoxSet'(_, _) -> ret_occ_tuple
-			    | _ -> raise X_syntax_error
+		    | BoxGet'(_) -> ret_occ_tuple
+		    | BoxSet'(_, _) -> ret_occ_tuple
+		    | _ -> raise X_syntax_error
 
     and find_occ_lambda_handler_helper boxed_inner_lambda param counter get_occ set_occ app_expr = 
 		let (_param, inner_get_occ, inner_set_occ) = (app_expr boxed_inner_lambda) in
