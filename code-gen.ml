@@ -282,7 +282,7 @@ module Code_Gen : CODE_GEN = struct
 
     .insert_params_loop_%d:
         cmp rcx, r10
-        jz .insert_params_loop_exit_%d
+        je .insert_params_loop_exit_%d
         mov r11, qword [r9 + rcx*WORD_SIZE]
         mov qword [rdi+rcx*WORD_SIZE], r11
         inc rcx
@@ -493,7 +493,6 @@ module Code_Gen : CODE_GEN = struct
 
     .update_arg_count_%d:
     %s
-
 
 
     "lambda_counter (is_shrink_stack num_of_fixed_params) lambda_counter lambda_counter (shrink_stack num_of_fixed_params lambda_counter) lambda_counter 

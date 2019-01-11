@@ -74,8 +74,10 @@ main:
     push qword SOB_NIL_ADDRESS
     push qword T_UNDEFINED
     push rsp
-    mov rbp, rsp
-    jmp code_fragment
+    call code_fragment
+    add rsp , 4 *8
+    leave
+    ret
 
 
 code_fragment:
@@ -130,10 +132,9 @@ let epilogue = "
       mov rbp, rsp
 
       mov rsi, PVAR(0)
-      CAR rsi, rsi
-
       mov rdi, PVAR(1)
-      mov [rsi], rdi
+      
+      mov [rsi + TYPE_SIZE], rdi
 
       mov rax, SOB_VOID_ADDRESS
       
@@ -145,10 +146,9 @@ let epilogue = "
       mov rbp, rsp
 
       mov rsi, PVAR(0)
-      CDR rsi, rsi
-
       mov rdi, PVAR(1)
-      mov [rsi], rdi
+      
+      mov [rsi + TYPE_SIZE + WORD_SIZE] , rdi
 
       mov rax, SOB_VOID_ADDRESS
       
@@ -156,6 +156,50 @@ let epilogue = "
       ret
       
       apply:
+      
+      push rbp
+      mov rbp , rsp
+      mov r13 , 0
+      mov r15 , PARAM_COUNT
+      dec r15
+      mov rdi , PVAR(r15)
+      
+      flatten_list_into_stack:
+      
+      cmp rdi , T_NIL
+      je reverse_list
+      
+      inc r13
+      CAR r14 , rdi
+      push r14
+      CDR rdi , rdi
+      jmp flatten_list_into_stack
+      
+      reverse_list:
+      mov r12 , rsp
+      dec r13
+      lea r11 , [rsp + 8 * r13]
+      cmp r11 , r12
+      jge push_other_params
+      
+      mov r9 , [r11]
+      mov r10 , [r12]
+      mov [r11] , r10
+      mov [r12] , r9
+   
+      sub r11 , WORD_SIZE   
+      add r12 , WORD_SIZE
+      jmp flatten_list_into_stack
+      
+      push_other_params:
+      sub r15 , 2
+      cmp r15 , 0
+      jle shift
+      mov rdi , PVAR()
+      shift:
+      
+      
+      
     ";;
 
 exception X_missing_input_file;;
