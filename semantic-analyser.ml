@@ -169,9 +169,7 @@ let rec aux_param_annotate_tail_calls e in_tp =
 
 let annotate_tail_calls e = aux_param_annotate_tail_calls e false;;
 
-
-(*-----------------------------------------Boxing---------------------------------- *) 
-
+(*-----------------------------------------Prints:-----------------------------------*)
 let rec print_sexpr = fun sexprObj ->
   match sexprObj  with
     | Bool(true) -> "Bool(true)"
@@ -220,10 +218,10 @@ print_expr = fun exprObj ->
     | BoxSet'(variable, expr) -> Printf.sprintf "BoxSet'(\"%s\", %s )" (print_var variable) (print_expr expr)
 
 and print_var = fun x ->
-	match x with
-	| VarFree(str) -> Printf.sprintf "VarFree(%s)" str
-	| VarParam(str, int1) -> Printf.sprintf "VarParam(%s)" str
-	| VarBound(str, int1, int2) -> Printf.sprintf "VarBound(%s)" str
+  match x with
+  | VarFree(str) -> Printf.sprintf "VarFree(%s)" str
+  | VarParam(str, int1) -> Printf.sprintf "VarParam(%s)" str
+  | VarBound(str, int1, int2) -> Printf.sprintf "VarBound(%s)" str
 and 
 
 print_exprs = fun exprList -> 
@@ -258,237 +256,244 @@ let rec printIntList = function
 | e::l -> print_int e ; print_string " " ; printIntList l
 
 let rec printThreesomesList lst =
-	match lst with
-		| [] -> ()
-		| (name, reads, writes)::cdr -> print_string "varName: " ; print_string name ; print_string " readlist: " ; printIntList reads ; print_string " writeList: " ; printIntList writes ; printThreesomesList cdr;;
+  match lst with
+    | [] -> ()
+    | (name, reads, writes)::cdr -> print_string "varName: " ; print_string name ; print_string " readlist: " ; printIntList reads ; print_string " writeList: " ; printIntList writes ; printThreesomesList cdr;;
 
 
 let rec printStringList = function 
 [] -> ()
 | e::l -> print_string e ; print_string " " ; printStringList l ;;
-(*TODO(7/1/19): add box_set to the run_semantics*)
 
-let major_counter = ref 0 ;;
 
-(* let inc_and_get = let _val = !major_counter + 1 in _val;;
- *)
-let append_and_get lst_ref _val = let _val = !lst_ref @ [_val] in _val;; 
+(*-----------------------------------------Boxing---------------------------------- *) 
 
-let str_equals str1 str2 = (compare str1 str2) == 0;;
+(*exceptions: *)
+exception X_box_set_rec;;
+exception X_no_free_var_should_be_boxed;;
+exception X_wrap_set_in_box;;
+exception X_get_occ;;
+exception X_set_occ;;
+exception X_rewrite_in_box_form;;
+exception X_ext_env_helper;;
+
+let get_occ_counter = ref 0;;
+let set_occ_counter = ref 0;;
+
+(*helper & library functions:*)
+
+let inc counter = counter := !counter + 1;;
+
+let ext_env_helper param = 
+	match param with 
+	|Var'(VarParam(_var, minor)) -> Var'(VarBound(_var, 0, minor))
+	|Var'(VarBound(_var, major, minor)) -> Var'(VarBound(_var, major+1, minor))
+	|Var'(VarFree(_var)) -> raise X_no_free_var_should_be_boxed
+	|_ -> raise X_syntax_error ;;
+
+let ext_env vars_to_box = List.map ext_env_helper vars_to_box;;
+
+let rec lst_product l1 l2 = match l1, l2 with
+    | [], _ | _, [] -> []
+    | h1::t1, h2::t2 -> (h1,h2) :: (lst_product [h1] t2) @ (lst_product t1 l2);; 
+
+let rec has_all_fixed_points l1 = match l1 with 
+  | [] -> true 
+  | (x,y) :: rest -> if(x <> y) then false else (has_all_fixed_points rest);;
 
 let not_empty lst = not(List.length(lst) == 0);;
 
-let set_diff l1 l2 = List.filter (fun x -> not (List.mem x l2)) l1;;
-
-(*check validity*)
-let rec product l1 l2 = 
-    match l1, l2 with
-    | [], _ | _, [] -> []
-    | h1::t1, h2::t2 -> (h1,h2)::(product [h1] t2)@(product t1 l2);;
-
-let rec has_occs_in_diff_ribs occ_p_list = 
-	match occ_p_list with 
-	| [] -> false 
-	| (x,y) :: rest -> if(x <> y) then true else (has_occs_in_diff_ribs rest);; 
-
-let get_var_name _var = match _var with
-				| VarFree(_var) -> _var
-				| VarParam(_var, minor) -> _var
-				| VarBound(_var, major, minor) -> _var
-
-
-let acc_occ occ_tuple_lst = 
-	let rec acc_occ_rec occ_tuple_lst get_occs set_occs = 
-	match occ_tuple_lst with
-				| [] -> (get_occs, set_occs) 
-				| (param, get_occ, set_occ) :: rest -> (acc_occ_rec rest (get_occs @ get_occ) (set_occs @ set_occ))
-	in (acc_occ_rec occ_tuple_lst [] []) ;;
-
 let get_minor_of_param param params = 
-	let rec get_minor_rec param_lst acc = 
-			match param_lst with
-				| [] -> -1 
-				| p :: rest -> if(str_equals p param) then acc else (get_minor_rec rest (acc + 1)) 
-	in 
-	(get_minor_rec params 0) ;;
+  let rec get_minor_rec param_lst acc = 
+      match param_lst with
+        | [] -> -1 
+        | p :: rest -> if(String.equal p param) then acc else (get_minor_rec rest (acc + 1)) 
+  in get_minor_rec params 0;; 
 
-let rewrite_in_box_form param minor = Set'(Var'(VarParam(param, minor)), Box'(VarParam(param, minor)));;
+let wrap_param_as_var_param param params = 
+  Var'(VarParam(param, get_minor_of_param param params)) ;;
 
-let wrap_in_box param params = 
-	let minor = get_minor_of_param param params in 
-	rewrite_in_box_form param minor;;
+let rewrite_in_box_form var_tag_param = match var_tag_param with
+  | Var'(VarParam(_var,minor)) -> Set'(Var'(VarParam(_var,minor)), Box'(VarParam(_var,minor)))
+  |_ -> raise X_syntax_error;;
 
-let filter_by_offset_in_list lst offset_lst = 
-	let rec filter_by_offset_in_list_rec lst offset_lst ret = 
-		match lst, offset_lst with
-			| [], _ | _, [] -> ret 
-			| h1::t1, h2::t2 -> if(h2) then 
-									[h1] @ (filter_by_offset_in_list_rec t1 t2 ret) 
-								else
-									 (filter_by_offset_in_list_rec t1 t2 ret)
-	in
-	(filter_by_offset_in_list_rec lst offset_lst []);;
+(* let fold_user_defined acc reducer lst = match lst with 
+  | [] -> []
+  | h :: t -> (reducer acc h) @ fold_user_defined  *)
 
+(*---------------------------The Boxing Algorithm:-------------------------------------*)
 
-let ret_boxed_body boxed_body filtered_params params =  
-	let wrap_in_box_wrapper param = wrap_in_box param params in 
-		Seq'((List.map wrap_in_box_wrapper filtered_params) @ [boxed_body]) ;;
+let wrap_var_in_box _var vars_to_box = 
+  if(List.mem (Var'(_var)) vars_to_box)
+    then BoxGet'(_var)
+  else (Var'(_var)) ;;
 
+let rec box_set_rec e vars_to_box = 
+	let app_expr e = box_set_rec e vars_to_box in 
+	match e with
+        | Const'(c) ->  Const'(c)
+        | Var'(_var) -> wrap_var_in_box _var vars_to_box
+        | If' (test ,conseq , alt) -> wrap_if_in_box test conseq alt vars_to_box
+        | Set' (_var, _val) -> wrap_set_in_box _var _val vars_to_box
+        | Def' (_var, _val) ->  Def' (_var, (app_expr _val))
+        | Seq' (exps) ->  Seq' (List.map app_expr exps)
+        | Or' (exps) ->  Or' ((List.map app_expr exps))
+        | LambdaSimple' (params, body) -> wrap_lambda_s_in_box params body vars_to_box
+        | LambdaOpt' (params, opt ,body) -> wrap_lambda_opt_in_box params opt body vars_to_box
+        | Applic' (expr, args) -> Applic' ((app_expr expr),(List.map app_expr args))
+        | ApplicTP'(expr, args)-> ApplicTP' ((app_expr expr),(List.map app_expr args))
+        | _ -> raise X_box_set_rec
 
-let rec box_set_rec e = match e with 
-				| Const'(c) ->  Const'(c)
-				| Var'(name) -> Var'(name)
-				| If' (test ,conseq , alt) -> If' ((box_set_rec test),(box_set_rec conseq) ,(box_set_rec alt))
-				| Set' (_var, _val) -> Set' ((box_set_rec _var), (box_set_rec _val))
-				| Def' (_var, _val) ->  Def' ((box_set_rec _var), (box_set_rec _val))
-				| Seq' (exps) ->  Seq' (List.map box_set_rec exps)
-				| Or' (exps) ->  Or' ((List.map box_set_rec exps))
-				| LambdaSimple' (params, body) -> LambdaSimple' (params, (boxing_pipeline params body))
-				| LambdaOpt' (params, opt ,body) -> LambdaOpt' (params, opt, (boxing_pipeline (params @[opt]) body))
-				| Applic' (expr, args) -> Applic' ((box_set_rec expr),(List.map box_set_rec args))
-				| ApplicTP'(expr, args)-> ApplicTP' ((box_set_rec expr),(List.map box_set_rec args))
-			    | _ -> raise X_syntax_error
+	and wrap_set_in_box _var _val vars_to_box = 
+	match _var with
+	|Var'(v)->
+	  let boxed_val = box_set_rec _val vars_to_box in
+	    if(List.mem _var vars_to_box) 
+	      then BoxSet'(v, boxed_val)
+	    else Set' (_var, boxed_val)
+	|_ -> raise X_wrap_set_in_box
 
-    
+	and wrap_if_in_box test conseq alt vars_to_box = 
+		If'((box_set_rec test vars_to_box),(box_set_rec conseq vars_to_box) ,(box_set_rec alt vars_to_box))
 
-    (*1. return the occurence tuple(param, get_occ, set_occ) for a given param*)
-    and get_occ_tuple param body = find_occurrences param body [] [] major_counter
+	and wrap_lambda_s_in_box params body vars_to_box = LambdaSimple' (params, (boxing_pipeline params body vars_to_box))
 
-    (*need to implement: app_expr expr & app_exprs exprs & inner handlers*)
-    and find_occurrences param body get_occ set_occ counter = 
-    	(*inner applications*)
-    	let app_expr expr = (find_occurrences param expr get_occ set_occ counter) in
-    	let app_exprs exprs = 
-    		let (_get_occ, _set_occ) = acc_occ (List.map app_expr exprs) in 
-    		(param, _get_occ, _set_occ) in
-    	(*inner handlers:*)
-    	let ret_occ_tuple = (param, get_occ, set_occ) in
-    	let var_handler var_name = 
-    		if(str_equals var_name param) then 
-    			(param, [-1], set_occ) 
-    		else 
-    			ret_occ_tuple 
-    	in
-    	let if_handler test conseq alt = (app_exprs [test; conseq; alt]) in 
-    	let set_handler _var _val = 
-    		let (param_val, get_occ_val, set_occ_val) = app_expr _val in 
-    		let param_val_name = get_var_name _var in 
-    		if(str_equals param_val_name param) then  
-    			(param, get_occ_val, [-1])
-    		else 
-    			(param, get_occ_val, set_occ_val)
-    	in
-    	let applic_handler app args = app_exprs ([app] @ args) 
-    	in
-    	match body with
-		    	| Const'(_) -> ret_occ_tuple
-				| Var'(VarFree(_)) -> ret_occ_tuple
-				| Var'(VarParam(_var, minor)) -> (var_handler _var)
-				| Var'(VarBound(_var, major, minor)) -> (var_handler _var)
-				| If' (test ,conseq , alt) -> (if_handler test conseq alt) 
-				| Set' (Var'(_var), _val) ->  (set_handler _var _val) 
-				| Def' (_var, _val) -> (app_expr _val)(*???*)
-				| Seq' (exps) -> (app_exprs exps)
-				| Or' (exps) -> (app_exprs exps)
-				| LambdaSimple' (l_params, inner_body) -> major_counter := !major_counter + 1; (find_occ_lambda_handler l_params inner_body param get_occ set_occ ret_occ_tuple app_expr !major_counter)
-				| LambdaOpt' (l_params, opt ,inner_body) -> major_counter := !major_counter + 1; (find_occ_lambda_handler (l_params @ [opt]) inner_body param get_occ set_occ ret_occ_tuple app_expr !major_counter)
-				| Applic' (app, args) -> (applic_handler app args)
-				| ApplicTP'(app, args)-> (applic_handler app args)
-				| Box'(_) -> ret_occ_tuple
-		    | BoxGet'(_) -> ret_occ_tuple
-		    | BoxSet'(_, _) -> ret_occ_tuple
-		    | _ -> raise X_syntax_error
+	and wrap_lambda_opt_in_box params opt body vars_to_box = LambdaOpt' (params, opt, (boxing_pipeline (params @[opt]) body vars_to_box))
 
-    and find_occ_lambda_handler_helper boxed_inner_lambda param counter get_occ set_occ app_expr = 
-		let (_param, inner_get_occ, inner_set_occ) = (app_expr boxed_inner_lambda) in
-		let tot_get_occ = ref get_occ in 
-		let tot_set_occ = ref set_occ in
-		if ((not_empty inner_get_occ)) then 
-			tot_get_occ := (append_and_get tot_get_occ counter);
-		if ((not_empty inner_set_occ)) then
-			tot_set_occ := (append_and_get tot_set_occ counter);
-		(param, !tot_get_occ, !tot_set_occ)
+	and boxing_pipeline params body vars_to_box = 
+    let extended_env = ext_env vars_to_box in 
+    let candidates_params = (get_box_candidates params body) in
+    let candidates = extended_env @ candidates_params  in
+    let boxed_body_pre = box_set_rec body candidates in
+    let boxed_body_post = box_add_on boxed_body_pre candidates_params in
+    boxed_body_post
 
-	and find_occ_lambda_handler params body param get_occ set_occ ret_occ_tuple app_expr counter= 
-(* 		let c_val = inc_and_get in
- *)    		if (List.mem param params) then
-    			ret_occ_tuple
-    		else 
-				(find_occ_lambda_handler_helper (boxing_pipeline params body) param counter get_occ set_occ app_expr)
+  and get_box_candidates params body = 
+    let func param = 
+      let wrapped_param = wrap_param_as_var_param param params in
+          if(should_box wrapped_param body) then [wrapped_param] else [] in
+    let reducer acc element = acc @ (func element)
+    in
+    List.fold_left reducer [] params 
 
 
-	(*2. check if the boxing process is needed for a certain occ_tuple*)
-    and should_box param_occ_tuple =  
-    	match param_occ_tuple with 
-    			| (param, get_occ, set_occ) -> has_occs_in_diff_ribs (product get_occ set_occ)
+  and box_add_on boxed_body_pre candidates = 
+      let transformed_candidates = List.map rewrite_in_box_form candidates in
+        if(not(not_empty transformed_candidates)) 
+        then boxed_body_pre 
+        else Seq'(transformed_candidates @ [boxed_body_pre])
 
 
-    and boxing_procedure body filtered_params params = if(not_empty filtered_params) then 
-    												let updated_body = (boxing_proc_traverse body filtered_params) in 
-    													(ret_boxed_body updated_body filtered_params params)
-    											else
-    												(box_set_rec body)
+  and box_parameters params minor body =
+  match params with
+  | [] -> []
+  | h :: t -> (box_paramter h minor body)@(box_parameters t (minor+1) body)
+
+  and box_paramter param minor body =
+  if(should_box (Var'(VarParam(param, minor))) body)
+  then [Var'(VarParam(param, minor))]
+  else [] 
 
 
-    and boxing_proc_traverse body filtered_params = 
-    			(*inner applications:*)
-    			let app_expr_wrapper expr = (boxing_proc_traverse expr filtered_params) in
-    			(*inner handlers*)
-				let var_param_handler _var minor = if (List.mem _var filtered_params) then BoxGet'(VarParam(_var, minor)) else Var'(VarParam(_var, minor)) in
-				let var_bound_handler _var major minor = if (List.mem _var filtered_params) then BoxGet'(VarBound(_var, major, minor)) else Var'(VarBound(_var, major, minor)) in
-    			let if_handler test conseq alt = If'(app_expr_wrapper test, app_expr_wrapper conseq, app_expr_wrapper alt) in
-    			let set_handler _var _val = let var_name = (get_var_name _var) in 
-    											let applied_val = app_expr_wrapper _val in
-    												if (List.mem var_name filtered_params) then 
-    													BoxSet'(_var, applied_val) 
-    												else Set' (Var'(_var), applied_val) 
-    			in   			
-    			let applic_handler app args = Applic'(app_expr_wrapper app, List.map app_expr_wrapper args) in
-    			let applicTP_handler app args = ApplicTP'(app_expr_wrapper app, List.map app_expr_wrapper args) in
-    			match body with
-		    	| Const'(c) -> Const'(c)
-				| Var'(VarFree(var)) -> Var'(VarFree(var))
-				| Var'(VarParam(_var, minor)) -> (var_param_handler _var minor)
-				| Var'(VarBound(_var, major, minor)) -> (var_bound_handler _var major minor)
-				| If' (test ,conseq , alt) -> (if_handler test conseq alt)
-				| Set' (Var'(_var), _val) -> (set_handler _var _val)
-				| Def' (Var'(_var), _val) -> (boxing_proc_define_handler _var _val filtered_params)
-				| Seq' (exps) -> Seq'(List.map app_expr_wrapper exps)
-				| Or' (exps) -> Or' (List.map app_expr_wrapper exps)
-				| LambdaSimple' (l_params, inner_body) -> (boxing_proc_lambda_s_handler l_params inner_body filtered_params)
-				| LambdaOpt' (l_params, opt ,inner_body) -> (boxing_proc_lambda_o_handler l_params opt inner_body filtered_params)
-				| Applic' (app, args) -> (applic_handler app args)
-				| ApplicTP'(app, args)-> (applicTP_handler app args) 
-				| Box'(b) -> Box'(b)
-			    | BoxGet'(b) ->  Box'(b)
-			    | BoxSet'(b, e) -> BoxSet'(b, e) 
-			    | _ -> raise X_syntax_error
+	and should_box param body = 
+    get_occ_counter := 0;
+    let get_occ_lst = get_occ param body in
+    set_occ_counter := 0; 
+    let set_occ_lst = set_occ param body in 
+    (* print_string (print_expr param); print_string " : "; printIntList get_occ_lst ; print_string "\n"; 
+    print_string(print_expr param); print_string " : "; printIntList set_occ_lst ; print_string "\n"; *)
+		(should_box_predicate get_occ_lst set_occ_lst)
 
-	
+  and should_box_predicate get_occ_lst set_occ_lst = 
+    (not_empty get_occ_lst) && (not_empty set_occ_lst) && 
+    not (has_all_fixed_points (lst_product get_occ_lst set_occ_lst))
 
-    and boxing_proc_define_handler _var _val filtered_params = let var_name = (get_var_name _var) in
-    											let sub_filtered_params = set_diff filtered_params [var_name] in 
-    												Def'(Var'(_var), (boxing_proc_traverse _val sub_filtered_params))
+	and get_occ param body = 
+		(*inner applications:*)
+		let app_expr e = get_occ param e in
+    (* let reducer acc element = acc @ (app_expr element) in
+		let app_exprs lst = List.fold_left reducer [] lst in  *)
 
-   	and boxing_proc_lambda_s_handler params body filtered_params = let sub_filtered_params = (* (printStringList filtered_params); print_string "; "; (printStringList params); *) 
-   																	set_diff filtered_params params in
-   																	(* (printStringList filtered_params); *)
-   																	LambdaSimple'(params, (boxing_proc_traverse body sub_filtered_params))
-
-   	and boxing_proc_lambda_o_handler params opt body filtered_params = let tot_params = params @ [opt] in 
-   																		let sub_filtered_params = set_diff filtered_params tot_params in
-   																			LambdaOpt'(params, opt, (boxing_proc_traverse body sub_filtered_params)) 
-
-    and boxing_pipeline params body = 
-    	let get_occ_tuple_wrapper param = get_occ_tuple param body in 
-    	let occ_tuple_lst = List.map get_occ_tuple_wrapper params in
-    	(* printThreesomesList(occ_tuple_lst); *)
-    	let should_box_lst = List.map should_box occ_tuple_lst in 
-    	let filtered_params = filter_by_offset_in_list params should_box_lst in
-    	boxing_procedure body filtered_params params;;
+		(*inner handlers:*)
+		let var_handler _var = if(expr'_eq param (Var'(_var))) then [-1] else [] in
+		let if_handler test conseq alt = get_app_exprs param [test;conseq;alt] in
+    let applic_handler app args = get_app_exprs param ([app] @ args) in
+		match body with 
+			| Const'(_) -> []
+			| Var'(_var) -> var_handler _var 
+			| If' (test ,conseq , alt) -> (if_handler test conseq alt) 
+			| Set' (Var'(_var), _val) ->  (app_expr _val) 
+			| Def' (_var, _val) -> (app_expr _val)
+			| Seq' (exps) -> (get_app_exprs param exps)
+			| Or' (exps) -> (get_app_exprs param exps)
+			| LambdaSimple' (l_params, inner_body) -> occ_lambda_handler param inner_body get_occ_counter get_occ (* get_occ_lambda_handler param inner_body *)
+			| LambdaOpt' (l_params, opt ,inner_body) -> occ_lambda_handler param inner_body get_occ_counter get_occ (* get_occ_lambda_handler param inner_body *)
+			| Applic' (app, args) -> (applic_handler app args)
+			| ApplicTP'(app, args)-> (applic_handler app args)
+	    | _ -> raise X_get_occ
 
 
-let box_set e = box_set_rec e;; 
+  and get_app_exprs param lst = match lst with
+      | [] -> []
+      | h :: t -> (get_occ param h) @ (get_app_exprs param t)
+
+  and set_app_exprs param lst = match lst with
+      | [] -> []
+      | h :: t -> (set_occ param h) @ (set_app_exprs param t)
+
+
+  and set_occ param body = 
+    (*inner applications:*)
+    let app_expr e = set_occ param e in
+    (* let reducer acc element = acc @ (app_expr element) in
+    let app_exprs lst = List.fold_left reducer [] lst in  *)
+    (*inner handlers:*)
+    let if_handler test conseq alt = set_app_exprs param [test;conseq;alt] in
+    let applic_handler app args = set_app_exprs param ([app] @ args) in
+    let set_handler _var _val = let occ_val_lst = app_expr _val in 
+                                  if(expr'_eq param (Var'(_var))) then 
+                                    [-1] @ occ_val_lst 
+                                  else occ_val_lst
+    in
+    match body with 
+      | Const'(_) -> []
+      | Var'(_var) -> []
+      | If' (test ,conseq , alt) -> (if_handler test conseq alt) 
+      | Set' (Var'(_var), _val) ->  (set_handler _var _val) 
+      | Def' (_var, _val) -> (app_expr _val)
+      | Seq' (exps) -> (set_app_exprs param exps)
+      | Or' (exps) -> (set_app_exprs param exps)
+      | LambdaSimple' (l_params, inner_body) -> occ_lambda_handler param inner_body set_occ_counter set_occ (* set_occ_lambda_handler param inner_body *)
+      | LambdaOpt' (l_params, opt ,inner_body) -> occ_lambda_handler param inner_body set_occ_counter set_occ (* set_occ_lambda_handler param inner_body *)
+      | Applic' (app, args) -> (applic_handler app args)
+      | ApplicTP'(app, args)-> (applic_handler app args)
+      | _ -> raise X_set_occ
+
+	(* and get_occ_lambda_handler param body =
+  incr get_occ_counter;
+  let curr_get_occ_counter = !get_occ_counter in
+  let param_to_bound = ext_env_helper param in
+  let get_occ_in_body = get_occ param_to_bound body in
+  if(get_occ_in_body == [])then [] else [curr_get_occ_counter] *)
+
+  and occ_lambda_handler param body counter occ_func =
+  incr counter;
+  let curr_occ_counter = !counter in
+  let param_to_bound = ext_env_helper param in
+  let occ_in_body = occ_func param_to_bound body in
+  if(occ_in_body == [])then [] else [curr_occ_counter]
+
+
+  (* and set_occ_lambda_handler param body =
+  incr set_occ_counter;
+  let curr_set_occ_counter = !set_occ_counter in
+  let param_to_bound = ext_env_helper param in
+  let set_occ_in_body = set_occ param_to_bound body in
+  if(set_occ_in_body == [])then [] else [curr_set_occ_counter];; *)
+
+
+
+let box_set e = box_set_rec e [] ;; 
 
 
 let run_semantics expr =
@@ -496,46 +501,19 @@ let run_semantics expr =
     (annotate_tail_calls
        (annotate_lexical_addresses expr));;
 
-  
-(* print_string(print_expr (run_semantics(tag_parse_expression (read_sexpr "
+
+
+(run_semantics (tag_parse_expression (read_sexpr "
+              (define foo3 (lambda (x y) 
+                              (lambda () x) 
+                              (lambda () y)
+                              (lambda () (set! x y))))")))
+(* 
+(run_semantics (tag_parse_expression (read_sexpr "
           (define foo1 (lambda (x)
                           (list (lambda () x)
                                 (lambda (y) 
-                                  (set! x y)))))"))));;  *)
+                                  (set! x y)))))"))) *);;
 
-(* (run_semantics (LambdaSimple (["x"],
-      Or [Applic (LambdaOpt (["y"], "z", Applic (LambdaSimple ([], Applic (LambdaSimple ([], 
-          Applic (Var "+", [Var "x"; Var "z"])), [])), [])), [Var "x"; Const (Sexpr (Number (Int 1)))]); 
-          LambdaSimple ([], Set (Var "x", Var "w")); Applic (Var "w", [Var "w"])])));; *)
-(* print_string(printThreesomesList((get_occ_tuple "x" (ApplicTP'(VarFree("list" ),[ LambdaSimple'([  ],VarBound("x" 0 0)); LambdaSimple'([ y ],Set(VarBound("x" 0 0),VarParam("y", 0))) ])))))       *)
 
 end;; (* struct Semantics *)
-
-
-(* 
-
-run_semantics(tag_parse_expression (read_sexpr "
-          (define foo1 (lambda (x)
-                          (list (lambda () x)
-                                (lambda (y) 
-                                  (set! x y)))))"))  *)
-
-                             (*might have issues*)
-		(*let lambda_handler_helper params body c_val = 
-			let boxed_inner_lambda = (boxing_alg params body) in 
-			let (_param, inner_get_occ, inner_set_occ) = (app_expr boxed_inner_lambda) in
-			let tot_get_occ = ref get_occ in 
-			let tot_set_occ = ref set_occ in
-			if ((not_empty inner_get_occ)) then 
-				tot_get_occ := (append_and_get tot_get_occ c_val);
-			if ((not_empty inner_set_occ)) then
-				tot_set_occ := (append_and_get tot_set_occ c_val);
-			(param, tot_get_occ, tot_set_occ)
-		in
-    	let lambda_handler params body = 
-    		let c_val = inc_and_get in
-    		if (List.mem param params) then
-    			ret_occ_tuple
-    		else 
-    			(lambda_handler_helper params body c_val) 
-    	in*)
