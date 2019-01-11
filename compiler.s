@@ -114,6 +114,8 @@
 %define MAKE_VOID db T_VOID
 %define MAKE_BOOL(val) MAKE_LITERAL T_BOOL, db val
 
+%define PARAM_COUNT qword [rbp + 3 * WORD_SIZE]
+
 ; Create a string of length %2
 ; from char %3.
 ; Stores result in register %1
