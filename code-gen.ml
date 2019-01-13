@@ -158,7 +158,7 @@ module Code_Gen : CODE_GEN = struct
         match c with
             | Void -> "MAKE_VOID"
             | Sexpr (Nil) -> "MAKE_NIL"
-            | Sexpr (Char(ch)) -> "MAKE_LITERAL_CHAR(\'" ^ (Char.escaped ch) ^ "\')"
+            | Sexpr (Char(ch)) -> "MAKE_LITERAL_CHAR(" ^ (string_of_int (int_of_char ch)) ^ ")"
             | Sexpr (Bool(b)) -> begin 
                                                 match b with
                                                     |true -> "MAKE_BOOL(1)"
@@ -605,11 +605,11 @@ module Code_Gen : CODE_GEN = struct
                     "add rsp , 8 * 1 \n" ^
                     "pop rbx \n" ^
                     "shl rbx , 3 \n" ^
-                    "add rsp , rbx \n" ^
-                    "for_DEBUG_0:"
+                    "add rsp , rbx \n"
                     
         and applic_tp_gen _e _args = 
             let applic_tp_loop_label = "applic_tp_loop" ^ (string_of_int !applic_tp_counter) in
+            (increment_counter applic_tp_counter) ; 
             let folder element acc = (acc ^ (gen element) ^ "\n" ^ "push rax \n") in
                 let push_args_str = (List.fold_right folder _args "") in
                     push_args_str ^ "push " ^ (string_of_int (List.length _args)) ^ "\n" ^
