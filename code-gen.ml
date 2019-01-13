@@ -367,71 +367,65 @@ module Code_Gen : CODE_GEN = struct
     sub rdx, rdi
     " num_of_fixed_params ;;
 
-    let shrink_stack  num_of_fixed_params num_of_opt_params lambda_counter= 
+    let shrink_stack  num_of_fixed_params lambda_counter= 
     Printf.sprintf
     "
-    ; rdi - holds number of opt params
-    mov rdi, %d
-
     ;r10 - holds number of fixed params
     mov r10, %d
 
+    ; rdi - holds number of opt params
+    mov rdi, [rbp + 3*WORD_SIZE] ;num_of_tot_params
+    sub rdi, r10
+
+    
     ;rdx - holds the list
     mov rdx, SOB_NIL_ADDRESS
 
-    push rcx
+
+    lea rsi, [rdi + r10 + 3]
     mov rcx, rdi
 
     .create_opt_param_list_loop_%d:
 
         cmp rcx, 0
         je .create_opt_param_list_loop_end_%d
-        lea r13, [rcx + r10 + 3] 
-        mov rbx, [rbp + WORD_SIZE * r13] ; r10 - to skip the fixed params; 3 - to skip ret env arg-count ;rcx - the offset of the opt params
+        mov rbx, [rbp + rsi*WORD_SIZE] ; r10 - to skip the fixed params; 3 - to skip ret env arg-count ;rcx - the offset of the opt params
         MAKE_PAIR(r9, rbx, rdx)
         mov rdx, r9
+        dec rsi
         dec rcx
         jmp .create_opt_param_list_loop_%d
 
     .create_opt_param_list_loop_end_%d:
 
-    pop rcx
-
-    ;rsi - holds the num_of_tot_params
-    xor rsi, rsi
-    add rsi, %d 
-    add rsi, %d
     ;rsi - holds the offset of the last opt relativly to rbp
-    add rsi, 3
+    lea rsi, [rdi + r10 + 3]
 
     ;the last opt is overridden with the list of opts
     mov qword [rbp+rsi*WORD_SIZE], rdx
 
-    push rcx
+    
     ;rcx - holds the offset of the last fixed param
-    xor rcx, rcx
-    mov rcx, rsi
-    sub rcx, rdi
+    lea rcx, [r10 + 4]
 
     ;rdi - num_of_opt_params -1
-    dec rdi ;?
-
+    dec rdi 
+    lea rdx, [rcx -1]
     .shift_shrink_loop_%d: 
         cmp rcx, 0
         jz .shift_shrink_loop_end_%d
 
         ;r9 - PARAMi - top down 
-        mov r9, qword [rbp + WORD_SIZE*rcx]
-        lea rsi, [rdi + rcx]
+        mov r9, qword [rbp + WORD_SIZE*rdx]
+        lea rsi, [rdi + rdx]
         shl rsi, 3
         mov qword [rbp + rsi], r9
 
+        dec rdx
         dec rcx
         jmp .shift_shrink_loop_%d
     
     .shift_shrink_loop_end_%d: 
-
-    pop rcx
 
     ;rdi = rdi * 8
     shl rdi, 3
@@ -439,8 +433,10 @@ module Code_Gen : CODE_GEN = struct
     add rsp, rdi
     add rbp, rdi
 
-    "   num_of_opt_params num_of_fixed_params lambda_counter lambda_counter lambda_counter lambda_counter
-        num_of_fixed_params num_of_opt_params lambda_counter lambda_counter lambda_counter lambda_counter;;
+    jmp .update_arg_count_%d
+
+    "   num_of_fixed_params lambda_counter lambda_counter lambda_counter lambda_counter
+        lambda_counter lambda_counter lambda_counter lambda_counter lambda_counter;;
 
     let enlarge_stack num_of_fixed_params lambda_counter= 
     Printf.sprintf
@@ -484,9 +480,8 @@ module Code_Gen : CODE_GEN = struct
     "
     num_of_fixed_params;;
 
-    let stack_adjustment fixed_params opt_params lambda_counter= 
+    let stack_adjustment fixed_params lambda_counter= 
         let num_of_fixed_params = List.length fixed_params in
-        let num_of_opt_params = List.length opt_params in
         Printf.sprintf 
     "
     adjust_stack_%d:
@@ -505,7 +500,7 @@ module Code_Gen : CODE_GEN = struct
     %s
 
 
-    "lambda_counter (is_shrink_stack num_of_fixed_params) lambda_counter lambda_counter (shrink_stack num_of_fixed_params num_of_opt_params lambda_counter) lambda_counter 
+    "lambda_counter (is_shrink_stack num_of_fixed_params) lambda_counter lambda_counter (shrink_stack num_of_fixed_params lambda_counter) lambda_counter 
     (enlarge_stack num_of_fixed_params lambda_counter) lambda_counter (update_arg_count num_of_fixed_params) ;;
 
 
@@ -573,7 +568,7 @@ module Code_Gen : CODE_GEN = struct
                                                         (generate_lambda params generated_body "" !lambda_counter)
 
                     |LambdaOpt'(params, opt, body) -> let generated_body = gen body in 
-                                                            (generate_lambda params generated_body (stack_adjustment params [opt] !lambda_counter) !lambda_counter)
+                                                            (generate_lambda params generated_body (stack_adjustment params !lambda_counter) !lambda_counter)
 
                                                             
                     | BoxGet' (v) -> (gen (Var'(v))) ^ "\n" ^
