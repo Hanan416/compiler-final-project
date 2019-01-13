@@ -544,25 +544,28 @@ module Code_Gen : CODE_GEN = struct
                                                 | car :: cdr -> (gen_seq cdr (str ^ (gen car) ^ "\n")) 
                                         in (gen_seq _l "") 
                                         
-                    | Or' (_l) -> (increment_counter or_counter) ;
+                    | Or' (_l) -> let or_exit_label = "or_Lexit"  ^ (string_of_int !or_counter) in
+                                        (increment_counter or_counter) ;
                                         let rec gen_or lst str = 
                                             match lst with
                                                 | [] -> str
-                                                | [car] -> str ^ (gen car) ^ "\nLexit"  ^ (string_of_int !or_counter) ^ ": \n"
+                                                | [car] -> str ^ (gen car) ^ "\n" ^ or_exit_label ^ ": \n"
                                                 | car :: cdr -> (gen_or cdr (str ^ (gen car) ^ "\n" ^
                                                                                         "cmp rax , SOB_FALSE_ADDRESS \n" ^
-                                                                                        "jne Lexit" ^(string_of_int !or_counter) ^ "\n"))
+                                                                                        "jne " ^ or_exit_label^ "\n"))
                                         in (gen_or _l "")
                                         
-                    | If'(test , _then , _else) -> (increment_counter if_counter) ; 
+                    | If'(test , _then , _else) -> let if_exit_label = "if_Lexit" ^ (string_of_int !if_counter) in
+                                                            let if_else_label = "Lelsle" ^ (string_of_int !if_counter) in
+                                                            (increment_counter if_counter) ; 
                                                             (gen test) ^ "\n" ^
                                                             "cmp rax , SOB_FALSE_ADDRESS \n" ^
-                                                            "je Lelse" ^ (string_of_int !if_counter) ^ "\n" ^
+                                                            "je " ^ if_else_label ^ "\n" ^
                                                             (gen _then) ^ "\n" ^
-                                                            "jmp Lexit" ^ (string_of_int !if_counter) ^ "\n" ^
-                                                            "Lelse" ^ (string_of_int !if_counter) ^ ": \n" ^
+                                                            "jmp "^ if_exit_label ^"\n" ^
+                                                            if_else_label ^ ": \n" ^
                                                             (gen _else) ^ "\n" ^
-                                                            "Lexit" ^ (string_of_int !if_counter) ^ ": \n"
+                                                            if_exit_label^ ": \n"
 
 
 
@@ -611,6 +614,7 @@ module Code_Gen : CODE_GEN = struct
                     "for_DEBUG_0:"
                     
         and applic_tp_gen _e _args = 
+            let applic_tp_loop_label = "applic_tp_loop" ^ (string_of_int !applic_tp_counter) in
             let folder element acc = (acc ^ (gen element) ^ "\n" ^ "push rax \n") in
                 let push_args_str = (List.fold_right folder _args "") in
                     push_args_str ^ "push " ^ (string_of_int (List.length _args)) ^ "\n" ^
@@ -618,7 +622,6 @@ module Code_Gen : CODE_GEN = struct
                     "push qword [rbp + WORD_SIZE] \n" ^
                     "mov r15 , rax \n" ^
                     "mov r14 , [rbp] \n" ^
-                    "mov r13 , PARAM_COUNT \n" ^
                     
                     "push rax \n"^
                     "push rbx \n" ^
@@ -626,27 +629,27 @@ module Code_Gen : CODE_GEN = struct
                     "mov rax , PARAM_COUNT \n" ^
                     "add rax , 4 \n" ^                    
                     "mov rcx , 0 \n" ^
-                    "applic_tp_loop" ^ (string_of_int !applic_tp_counter) ^ ": \n" ^
+                    applic_tp_loop_label ^ ": \n" ^
                     "inc rcx \n" ^
                     "dec rax \n" ^
                     "push rax \n" ^
-                    "mov rax , WORD_SIZE \n" ^
+                    "mov rax , rcx \n" ^
                     "mov rbx , rbp \n"^
-                    "mul rcx \n" ^
+                    "shl rax , 3 \n" ^
                     "sub rbx , rax \n" ^
                     "pop rax \n" ^
                     "mov rbx , [rbx] \n" ^
                     "mov [rbp + WORD_SIZE * rax] , rbx \n" ^
                     "cmp rcx , " ^ (string_of_int ((List.length _args) + 3)) ^ "\n" ^
-                    "jne applic_tp_loop" ^ (string_of_int !applic_tp_counter) ^ "\n" ^
+                    "jne " ^ applic_tp_loop_label^ "\n" ^
                     
                     "pop rcx \n" ^
                     "pop rbx \n" ^
                     "pop rax \n" ^
                     
                     "push rax \n" ^
-                    "mov rax , WORD_SIZE \n" ^
-                    "mul r13 \n" ^
+                    "mov rax , PARAM_COUNT \n" ^
+                    "shl rax , 3 \n" ^
                     "add rax , WORD_SIZE * 4 \n" ^
                     "mov r12 , rax \n" ^
                     "pop rax \n" ^
