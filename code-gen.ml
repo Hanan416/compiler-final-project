@@ -618,10 +618,12 @@ module Code_Gen : CODE_GEN = struct
             let folder element acc = (acc ^ (gen element) ^ "\n" ^ "push rax \n") in
                 let push_args_str = (List.fold_right folder _args "") in
                     push_args_str ^ "push " ^ (string_of_int (List.length _args)) ^ "\n" ^
+                    (gen _e) ^ "\n" ^
                     "push qword [rax + TYPE_SIZE] \n" ^
                     "push qword [rbp + WORD_SIZE] \n" ^
                     "mov r15 , rax \n" ^
                     "mov r14 , [rbp] \n" ^
+                    "mov rdi , PARAM_COUNT\n" ^
                     
                     "push rax \n"^
                     "push rbx \n" ^
@@ -648,7 +650,7 @@ module Code_Gen : CODE_GEN = struct
                     "pop rax \n" ^
                     
                     "push rax \n" ^
-                    "mov rax , PARAM_COUNT \n" ^
+                    "mov rax , rdi \n" ^
                     "shl rax , 3 \n" ^
                     "add rax , WORD_SIZE * 4 \n" ^
                     "mov r12 , rax \n" ^
