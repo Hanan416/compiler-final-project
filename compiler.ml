@@ -159,6 +159,7 @@ let epilogue = "
       
       push rbp
       mov rbp , rsp
+      
       mov r13 , 0
       mov r15 , PARAM_COUNT
       dec r15
@@ -166,7 +167,7 @@ let epilogue = "
       
       flatten_list_into_stack:
       
-      cmp rdi , T_NIL
+      cmp byte [rdi] , T_NIL
       je reverse_list
       
       inc r13
@@ -177,10 +178,13 @@ let epilogue = "
       
       reverse_list:
       mov r12 , rsp
-      dec r13
-      lea r11 , [rsp + 8 * r13]
+      mov r15 , r13
+      dec r15
+      lea r11 , [rsp + 8 * r15]
+      
+      reverse_list_loop:      
       cmp r11 , r12
-      jge push_other_params
+      jle push_other_params
       
       mov r9 , [r11]
       mov r10 , [r12]
@@ -189,16 +193,64 @@ let epilogue = "
    
       sub r11 , WORD_SIZE   
       add r12 , WORD_SIZE
-      jmp flatten_list_into_stack
-      
+      jmp reverse_list_loop
+    
       push_other_params:
-      sub r15 , 2
+      mov r15 , PARAM_COUNT
+      dec r15
+      dec r15
+      
+      push_params_loop:
       cmp r15 , 0
       jle shift
-      mov rdi , PVAR()
+      mov rdi , PVAR(r15)
+      push rdi
+      dec r15
+      jmp push_params_loop
+      
       shift:
+      mov r15 , PARAM_COUNT
+      add r15 , r13
+      dec r15
+      dec r15
+      push r15
+      mov rdi , PVAR(0)
+      push qword [rdi+TYPE_SIZE]
+      push qword [rbp + 8]
+      mov r8 , [rbp]
+      add r15 , 3
       
+      mov rax , [rbp + 4 * WORD_SIZE]
+      mov rdi , PARAM_COUNT
       
+      push rax
+      mov rax , PARAM_COUNT
+      add rax , 4
+      mov rcx , 0
+      
+      apply_main_loop:
+      inc rcx
+      dec rax
+      push rax
+      mov rax , rcx
+      mov rbx , rbp
+      shl rax , 3
+      sub rbx , rax
+      pop rax
+      mov rbx , [rbx]
+      mov [rbp + WORD_SIZE * rax] , rbx
+      cmp rcx , r15
+      jne apply_main_loop
+      
+      mov rbp , r8
+      mov rax , rdi
+      shl rax , 3
+      add rax , WORD_SIZE * 4
+      mov rsi , rax
+      pop rax
+      add rsp , rsi
+            
+      jmp [rax + TYPE_SIZE + WORD_SIZE]
       
     ";;
 
