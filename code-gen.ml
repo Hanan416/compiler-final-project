@@ -228,11 +228,9 @@ module Code_Gen : CODE_GEN = struct
                                                     
     let increment_counter counter= counter := !counter +1;;
 
-    let generate_lambda params generated_body stack_adjustment_value l_counter = 
-    increment_counter lambda_counter;
-     let lambda_code_gen = (Printf.sprintf
+    let is_base_env l_counter= 
+    Printf.sprintf
     "
-    gen_lambda_%d:
     ;get pointer to prev_env:
     mov rax, [rbp + WORD_SIZE * 2]
 
@@ -245,37 +243,42 @@ module Code_Gen : CODE_GEN = struct
 
     je .L_undefined_%d
 
-        .L_vector%d:
-            VECTOR_LENGTH rbx, rax
-            inc rbx ; 1 + |Env|
+    " l_counter;;
 
-            ;holds the number of params
-            mov rdx, qword [rbp + 3 * WORD_SIZE] 
+    let base_env = 
+    Printf.sprintf
+    "
+    mov rbx, 1 ; 1 + |Env|
+    mov rdx, 0 ; there are no bound variables 
+    lea rdi, [rdx * WORD_SIZE + WORD_SIZE + TYPE_SIZE] 
+    MALLOC rdi, rdi ;holds the allocated memory for the new env
+    mov byte [rdi], T_VECTOR
+    mov qword [rdi+TYPE_SIZE], rdx
+    add rdi, WORD_SIZE+TYPE_SIZE
+    ";;
 
-            ;allocating and setting a vector to hold the params_env:
-            lea rdi, [rdx * WORD_SIZE + WORD_SIZE + TYPE_SIZE] 
-            MALLOC rdi, rdi ;holds the allocated memory for the new env
-            mov byte [rdi], T_VECTOR
-            mov qword [rdi+TYPE_SIZE], rdx
-            add rdi, WORD_SIZE+TYPE_SIZE
+    let ext_env l_counter= 
+    Printf.sprintf
+    "
+    VECTOR_LENGTH rbx, rax
+    inc rbx ; 1 + |Env|
 
-            ;mov r10, qword [rbp + 3 * WORD_SIZE] ;num of arguments
-            
+    ;holds the number of params
+    mov rdx, qword [rbp + 3 * WORD_SIZE] 
 
-            jmp .L_len_exit_%d
+    ;allocating and setting a vector to hold the params_env:
+    lea rdi, [rdx * WORD_SIZE + WORD_SIZE + TYPE_SIZE] 
+    MALLOC rdi, rdi ;holds the allocated memory for the new env
+    mov byte [rdi], T_VECTOR
+    mov qword [rdi+TYPE_SIZE], rdx
+    add rdi, WORD_SIZE+TYPE_SIZE
 
-        .L_undefined_%d:
-            mov rbx, 1 ; 1 + |Env|
-            mov rdx, 0 ; there are no bound variables 
-            lea rdi, [rdx * WORD_SIZE + WORD_SIZE + TYPE_SIZE] 
-            MALLOC rdi, rdi ;holds the allocated memory for the new env
-            mov byte [rdi], T_VECTOR
-            mov qword [rdi+TYPE_SIZE], rdx
-            add rdi, WORD_SIZE+TYPE_SIZE
-               
+    jmp .setting_params_%d
+    " l_counter;;
 
-    .L_len_exit_%d:
-
+    let copy_params l_counter= 
+    Printf.sprintf
+    "
     push rcx
     mov rcx, 0
     lea r9 , [rbp + 4*WORD_SIZE]
@@ -292,6 +295,11 @@ module Code_Gen : CODE_GEN = struct
 
     pop rcx
 
+    "l_counter l_counter l_counter l_counter;;
+
+    let copy_to_ext_env l_counter= 
+    Printf.sprintf
+    "
     ;allocating and setting a vector to hold the ExtEnv:
     lea rsi, [rbx * WORD_SIZE + WORD_SIZE + TYPE_SIZE]
     MALLOC rsi, rsi
@@ -324,11 +332,35 @@ module Code_Gen : CODE_GEN = struct
         inc r9
 
         jmp .insert_data_loop_%d
+    "
+    l_counter l_counter l_counter;;
+
+
+
+    let generate_lambda params generated_body stack_adjustment_value l_counter = 
+    increment_counter lambda_counter;
+     let lambda_code_gen = (Printf.sprintf
+    "
+    gen_lambda_%d:
+    ;is_base_env:
+        %s
+
+        .L_vector%d:
+            %s
+
+        .L_undefined_%d:
+            %s
+               
+
+    .setting_params_%d:
+    %s
+
+    ;allocating and setting ExtEnv:
+    %s
 
     .insert_data_loop_exit_%d:
 
     pop rcx
-    inc rbx
 
     ;rdi was pointing on the vectors data
     sub rdi, TYPE_SIZE + WORD_SIZE
@@ -350,8 +382,8 @@ module Code_Gen : CODE_GEN = struct
 
     Lcont_%d:
     " 
-    l_counter l_counter l_counter l_counter l_counter l_counter l_counter l_counter l_counter l_counter 
-    l_counter l_counter l_counter l_counter l_counter l_counter l_counter stack_adjustment_value generated_body l_counter) 
+    l_counter (is_base_env l_counter) l_counter (ext_env l_counter) l_counter base_env l_counter (copy_params l_counter) 
+        (copy_to_ext_env l_counter) l_counter l_counter l_counter l_counter stack_adjustment_value generated_body l_counter) 
     in lambda_code_gen;;
 
     (*rdx holds (num_of_tot_params - num_of_fixed_params) which means rdx == 0 ? enlarge : shrink*)
@@ -378,8 +410,8 @@ module Code_Gen : CODE_GEN = struct
     sub rdi, r10
 
     
-    ;rdx - holds the list
-    mov rdx, SOB_NIL_ADDRESS
+    ;rbx - holds the list
+    mov rbx, SOB_NIL_ADDRESS
 
 
     lea rsi, [rdi + r10 + 3]
@@ -389,9 +421,9 @@ module Code_Gen : CODE_GEN = struct
 
         cmp rcx, 0
         je .create_opt_param_list_loop_end_%d
-        mov rbx, [rbp + rsi*WORD_SIZE] ; r10 - to skip the fixed params; 3 - to skip ret env arg-count ;rcx - the offset of the opt params
-        MAKE_PAIR(r9, rbx, rdx)
-        mov rdx, r9
+        mov r15, [rbp + rsi*WORD_SIZE] ; r10 - to skip the fixed params; 3 - to skip ret env arg-count ;rcx - the offset of the opt params
+        MAKE_PAIR(rax, r15, rbx)
+        mov rbx, rax
         dec rsi
         dec rcx
         jmp .create_opt_param_list_loop_%d
@@ -402,7 +434,7 @@ module Code_Gen : CODE_GEN = struct
     lea rsi, [rdi + r10 + 3]
 
     ;the last opt is overridden with the list of opts
-    mov qword [rbp+rsi*WORD_SIZE], rdx
+    mov qword [rbp+rsi*WORD_SIZE], rbx
 
     
     ;rcx - holds the offset of the last fixed param
@@ -465,8 +497,9 @@ module Code_Gen : CODE_GEN = struct
     ;STACK[top] = SOB_NIL_ADDRESS
     ;bottom_frame+size_of_frame = top_frame AKA the last arguement
     mov r12, SOB_NIL_ADDRESS
-    ;WORD_SIZE*([rbp 3*WORD_SIZE + 4])
-    lea r10, [3*WORD_SIZE + 4]
+    ;WORD_SIZE*([rbp 3*WORD_SIZE] + 4)
+    mov r10, [rbp + 3*WORD_SIZE]
+    add r10, + 4 ; offset to last the opt
     mov [rbp + r10*WORD_SIZE], r12
     " num_of_fixed_params lambda_counter lambda_counter lambda_counter lambda_counter
     ;;
@@ -594,6 +627,8 @@ module Code_Gen : CODE_GEN = struct
                     | Applic'(_e , _args) -> (applic_gen _e _args)
                     
                     | ApplicTP' (_e , _args) -> (applic_tp_gen _e _args)
+
+                    | _ -> raise X_syntax_error 
                     
         and applic_gen _e _args = 
             let folder element acc = (acc ^ (gen element)^ "\n" ^ "push rax \n") in
