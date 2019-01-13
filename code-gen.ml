@@ -652,7 +652,7 @@ module Code_Gen : CODE_GEN = struct
                     "push qword [rax + TYPE_SIZE] \n" ^
                     "push qword [rbp + WORD_SIZE] \n" ^
                     "mov r15 , rax \n" ^
-                    "mov r14 , [rbp] \n" ^
+                    "push qword [rbp] \n" ^
                     "mov rdi , PARAM_COUNT\n" ^
                     
                     "push rax \n"^
@@ -672,7 +672,7 @@ module Code_Gen : CODE_GEN = struct
                     "pop rax \n" ^
                     "mov rbx , [rbx] \n" ^
                     "mov [rbp + WORD_SIZE * rax] , rbx \n" ^
-                    "cmp rcx , " ^ (string_of_int ((List.length _args) + 3)) ^ "\n" ^
+                    "cmp rcx , " ^ (string_of_int ((List.length _args) + 4)) ^ "\n" ^
                     "jne " ^ applic_tp_loop_label^ "\n" ^
                     
                     "pop rcx \n" ^
@@ -687,7 +687,7 @@ module Code_Gen : CODE_GEN = struct
                     "pop rax \n" ^
                     "add rsp , r12 \n" ^
                     
-                    "mov rbp , r14 \n" ^
+                    "pop qword rbp \n" ^
                     "jmp [r15 + TYPE_SIZE + WORD_SIZE] \n"
                     
         in

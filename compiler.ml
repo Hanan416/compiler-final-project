@@ -217,8 +217,8 @@ let epilogue = "
       mov rdi , PVAR(0)
       push qword [rdi+TYPE_SIZE]
       push qword [rbp + 8]
-      mov r8 , [rbp]
-      add r15 , 3
+      push qword [rbp]
+      add r15 , 4
       
       mov rax , [rbp + 4 * WORD_SIZE]
       mov rdi , PARAM_COUNT
@@ -242,14 +242,14 @@ let epilogue = "
       cmp rcx , r15
       jne apply_main_loop
       
-      mov rbp , r8
       mov rax , rdi
       shl rax , 3
       add rax , WORD_SIZE * 4
       mov rsi , rax
       pop rax
       add rsp , rsi
-            
+      
+      pop rbp      
       jmp [rax + TYPE_SIZE + WORD_SIZE]
       
     ";;
