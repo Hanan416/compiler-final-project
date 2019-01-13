@@ -155,49 +155,7 @@ let epilogue = "
       leave
       ret
       
-      apply:
-      
-      push rbp
-      mov rbp , rsp
-      mov r13 , 0
-      mov r15 , PARAM_COUNT
-      dec r15
-      mov rdi , PVAR(r15)
-      
-      flatten_list_into_stack:
-      
-      cmp rdi , T_NIL
-      je reverse_list
-      
-      inc r13
-      CAR r14 , rdi
-      push r14
-      CDR rdi , rdi
-      jmp flatten_list_into_stack
-      
-      reverse_list:
-      mov r12 , rsp
-      dec r13
-      lea r11 , [rsp + 8 * r13]
-      cmp r11 , r12
-      jge push_other_params
-      
-      mov r9 , [r11]
-      mov r10 , [r12]
-      mov [r11] , r10
-      mov [r12] , r9
-   
-      sub r11 , WORD_SIZE   
-      add r12 , WORD_SIZE
-      jmp flatten_list_into_stack
-      
-      push_other_params:
-      sub r15 , 2
-      cmp r15 , 0
-      jle shift
-      mov rdi , PVAR()
-      shift:
-      
+      apply:    
       
       
     ";;

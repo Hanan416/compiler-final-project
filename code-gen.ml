@@ -236,19 +236,21 @@ module Code_Gen : CODE_GEN = struct
     ;get pointer to prev_env:
     mov rax, [rbp + WORD_SIZE * 2]
 
-    ;check for type of env: 
+    ; creating ExtEnv[0]:
     ;the length of the env will be in rbx
 
-    cmp rax, T_VECTOR
+    mov r15, [rax]
 
-    jne .L_undefined_%d
+    cmp r15, T_UNDEFINED
+
+    je .L_undefined_%d
 
         .L_vector%d:
             VECTOR_LENGTH rbx, rax
-            inc rbx ; num of env
+            inc rbx ; 1 + |Env|
 
-            ;length of env:
-            mov rdx, qword [rbp + 3 * WORD_SIZE] ;holds the number of params
+            ;holds the number of params
+            mov rdx, qword [rbp + 3 * WORD_SIZE] 
 
             ;allocating and setting a vector to hold the params_env:
             lea rdi, [rdx * WORD_SIZE + WORD_SIZE + TYPE_SIZE] 
@@ -257,31 +259,29 @@ module Code_Gen : CODE_GEN = struct
             mov qword [rdi+TYPE_SIZE], rdx
             add rdi, WORD_SIZE+TYPE_SIZE
 
-            mov r10, qword [rbp + 3 * WORD_SIZE] ;num of arguments
-            mov r9, qword [rbp + 4 * WORD_SIZE] ; first arguement
+            ;mov r10, qword [rbp + 3 * WORD_SIZE] ;num of arguments
+            
 
             jmp .L_len_exit_%d
 
         .L_undefined_%d:
-            mov rbx, 1 
-            mov rdx, 0 ;vector length
-            ;allocating and setting a vector to hold the params_env:
+            mov rbx, 1 ; 1 + |Env|
+            mov rdx, 0 ; there are no bound variables 
             lea rdi, [rdx * WORD_SIZE + WORD_SIZE + TYPE_SIZE] 
             MALLOC rdi, rdi ;holds the allocated memory for the new env
             mov byte [rdi], T_VECTOR
             mov qword [rdi+TYPE_SIZE], rdx
             add rdi, WORD_SIZE+TYPE_SIZE
-            mov r10, 0
                
 
     .L_len_exit_%d:
 
     push rcx
     mov rcx, 0
-
-
+    lea r9 , [rbp + 4*WORD_SIZE]
+    ;ExtEnv[0][i] = param[i]
     .insert_params_loop_%d:
-        cmp rcx, r10
+        cmp rcx, rdx
         je .insert_params_loop_exit_%d
         mov r11, qword [r9 + rcx*WORD_SIZE]
         mov qword [rdi+rcx*WORD_SIZE], r11
@@ -292,7 +292,7 @@ module Code_Gen : CODE_GEN = struct
 
     pop rcx
 
-    ;allocating and setting a vector to hold the external_env:
+    ;allocating and setting a vector to hold the ExtEnv:
     lea rsi, [rbx * WORD_SIZE + WORD_SIZE + TYPE_SIZE]
     MALLOC rsi, rsi
     mov byte [rsi], T_VECTOR
@@ -301,18 +301,23 @@ module Code_Gen : CODE_GEN = struct
     add rsi, WORD_SIZE + TYPE_SIZE
     ; rcx - i, r9 - j 
 
-    push rcx 
+    push rcx
+
 
     mov rcx, 0
     mov r9, 1
     dec rbx
 
+    ;ExtEnv[i+1] = Env[i]
     .insert_data_loop_%d:
         cmp rcx, rbx
         je .insert_data_loop_exit_%d
 
         ;ExtEnv[r9] = Env[rcx]
-        mov r8, qword [rax + (rcx + 1 * WORD_SIZE) +TYPE_SIZE]
+
+        lea r15, [WORD_SIZE + TYPE_SIZE + rcx*WORD_SIZE]
+        add r15, rax 
+        mov r8, qword [r15] ;to get to the data of the vector who represents the last Env
         mov qword [rsi + r9*WORD_SIZE], r8
 
         inc rcx
@@ -325,6 +330,9 @@ module Code_Gen : CODE_GEN = struct
     pop rcx
     inc rbx
 
+    ;rdi was pointing on the vectors data
+    sub rdi, TYPE_SIZE + WORD_SIZE
+
     mov qword [rsi], rdi
     sub rsi, TYPE_SIZE + WORD_SIZE
 
@@ -333,9 +341,9 @@ module Code_Gen : CODE_GEN = struct
     jmp Lcont_%d
 
     Lcode_%d: 
-    %s
     push rbp 
     mov rbp, rsp
+    %s
     %s
     leave 
     ret
@@ -353,18 +361,17 @@ module Code_Gen : CODE_GEN = struct
     ;rdi - num_of_fixed_params
     mov rdi, %d 
 
-    ;rdx - num_of_tot_params 
-    mov rdx, qword [rbx + 3*WORD_SIZE]
+    ;rdx - arg count 
+    mov rdx, qword [rbp + 3*WORD_SIZE]
 
     sub rdx, rdi
     " num_of_fixed_params ;;
 
-    let shrink_stack  num_of_fixed_params lambda_counter= 
+    let shrink_stack  num_of_fixed_params num_of_opt_params lambda_counter= 
     Printf.sprintf
     "
     ; rdi - holds number of opt params
-    mov rdi, qword [rbp + 3 * WORD_SIZE];
-    sub rdi, %d
+    mov rdi, %d
 
     ;r10 - holds number of fixed params
     mov r10, %d
@@ -379,8 +386,8 @@ module Code_Gen : CODE_GEN = struct
 
         cmp rcx, 0
         je .create_opt_param_list_loop_end_%d
-
-        mov rbx, [rbp + WORD_SIZE * (rcx+r10+3)] ; r10 - to skip the fixed params; 3 - to skip ret env arg-count ;rcx - the offset of the opt params
+        lea r13, [rcx + r10 + 3] 
+        mov rbx, [rbp + WORD_SIZE * r13] ; r10 - to skip the fixed params; 3 - to skip ret env arg-count ;rcx - the offset of the opt params
         MAKE_PAIR(r9, rbx, rdx)
         mov rdx, r9
         dec rcx
@@ -390,19 +397,20 @@ module Code_Gen : CODE_GEN = struct
 
     pop rcx
 
-    ;r9 - holds the num_of_tot_params
-    add r9, r10 ;?
-    add r9, rdi ;?
-    ;r9 - holds the offset of the last opt relativly to rbp
-    add r9, 3
+    ;rsi - holds the num_of_tot_params
+    xor rsi, rsi
+    add rsi, %d 
+    add rsi, %d
+    ;rsi - holds the offset of the last opt relativly to rbp
+    add rsi, 3
 
     ;the last opt is overridden with the list of opts
-    mov [rbp+r9], rdx
+    mov qword [rbp+rsi*WORD_SIZE], rdx
 
     push rcx
-    ;holds the offset of the last fixed param
-    xor rcx rcx
-    mov rcx, r9
+    ;rcx - holds the offset of the last fixed param
+    xor rcx, rcx
+    mov rcx, rsi
     sub rcx, rdi
 
     ;rdi - num_of_opt_params -1
@@ -412,12 +420,14 @@ module Code_Gen : CODE_GEN = struct
         cmp rcx, 0
         jz .shift_shrink_loop_end_%d
 
-        ;r8 - PARAMi - top down 
-        mov r8, qword [rbp + WORD_SIZE*rcx]
-        mov qword [rbp + rcx + rdi], r8
+        ;r9 - PARAMi - top down 
+        mov r9, qword [rbp + WORD_SIZE*rcx]
+        lea rsi, [rdi + rcx]
+        shl rsi, 3
+        mov qword [rbp + rsi], r9
 
         dec rcx
-        jmp .shift_shrink_loop%d
+        jmp .shift_shrink_loop_%d
     
     .shift_shrink_loop_end_%d: 
 
@@ -429,22 +439,20 @@ module Code_Gen : CODE_GEN = struct
     add rsp, rdi
     add rbp, rdi
 
-    "   num_of_fixed_params num_of_fixed_params lambda_counter lambda_counter lambda_counter lambda_counter
-        lambda_counter lambda_counter lambda_counter lambda_counter;;
+    "   num_of_opt_params num_of_fixed_params lambda_counter lambda_counter lambda_counter lambda_counter
+        num_of_fixed_params num_of_opt_params lambda_counter lambda_counter lambda_counter lambda_counter;;
 
     let enlarge_stack num_of_fixed_params lambda_counter= 
     Printf.sprintf
     "
-    push rcx 
-
-    mov r8 [4 + %d] ; size of frame in bytes
+    mov r8 ,4 + %d ; size of frame in bytes
     mov rcx, 0
 
     .shift_enlarge_loop_%d:
         cmp rcx, r8
         je .shift_enlarge_loop_end_%d
 
-        mov r10, rbp + rcx * WORD_SIZE ; holds the address of the current param to shift
+        lea r10, [rbp + rcx * WORD_SIZE]; holds the address of the current param to shift
 
         mov r9, qword [r10]
         mov [r10 - WORD_SIZE], r9
@@ -453,7 +461,6 @@ module Code_Gen : CODE_GEN = struct
     jmp .shift_enlarge_loop_%d
 
     .shift_enlarge_loop_end_%d:
-    pop rcx 
 
     ;update pointers to stack:
     sub rsp, WORD_SIZE
@@ -461,8 +468,10 @@ module Code_Gen : CODE_GEN = struct
 
     ;STACK[top] = SOB_NIL_ADDRESS
     ;bottom_frame+size_of_frame = top_frame AKA the last arguement
-    mov r12, [SOB_NIL_ADDRESS]
-    mov [rbp + r8], r12
+    mov r12, SOB_NIL_ADDRESS
+    ;WORD_SIZE*([rbp 3*WORD_SIZE + 4])
+    lea r10, [3*WORD_SIZE + 4]
+    mov [rbp + r10*WORD_SIZE], r12
     " num_of_fixed_params lambda_counter lambda_counter lambda_counter lambda_counter
     ;;
 
@@ -471,19 +480,20 @@ module Code_Gen : CODE_GEN = struct
     "
     mov rdi, %d
     inc rdi
-    mov qword [rbp 3*WORD_SIZE], rdi
+    mov qword [rbp + 3*WORD_SIZE], rdi
     "
     num_of_fixed_params;;
 
-    let stack_adjustment fixed_params lambda_counter= 
+    let stack_adjustment fixed_params opt_params lambda_counter= 
         let num_of_fixed_params = List.length fixed_params in
+        let num_of_opt_params = List.length opt_params in
         Printf.sprintf 
     "
     adjust_stack_%d:
     %s
 
     cmp rdx, 0
-    jz .enlarge_stack_%d
+    je .enlarge_stack_%d
 
     .shrink_stack_%d:
     %s
@@ -495,7 +505,7 @@ module Code_Gen : CODE_GEN = struct
     %s
 
 
-    "lambda_counter (is_shrink_stack num_of_fixed_params) lambda_counter lambda_counter (shrink_stack num_of_fixed_params lambda_counter) lambda_counter 
+    "lambda_counter (is_shrink_stack num_of_fixed_params) lambda_counter lambda_counter (shrink_stack num_of_fixed_params num_of_opt_params lambda_counter) lambda_counter 
     (enlarge_stack num_of_fixed_params lambda_counter) lambda_counter (update_arg_count num_of_fixed_params) ;;
 
 
@@ -509,8 +519,8 @@ module Code_Gen : CODE_GEN = struct
                     | Var' (VarParam (_ , minor)) -> "mov rax , qword [rbp + 8 * (4 + "^(string_of_int minor)^" )]"
                     
                     | Var'(VarBound (_ , major , minor)) -> "mov rax , qword [rbp + 8 * 2] \n " ^
-                                                                                "mov rax , qword [rax + 8 * " ^ (string_of_int major) ^" ]\n" ^
-                                                                                "mov rax , qword [rax + 8 * " ^ (string_of_int minor) ^ " ]"
+                                                                                "mov rax , qword [TYPE_SIZE + WORD_SIZE + rax + 8 * " ^ (string_of_int major) ^" ]\n" ^
+                                                                                "mov rax, [TYPE_SIZE + WORD_SIZE + rax + 8 * " ^ (string_of_int minor) ^ " ]\n" 
                                                                                 
                     | Var' (VarFree (v)) -> "mov rax , qword [fvar_tbl + " ^ (string_of_int (retrieve_fvar_label v fvars)) ^ " ]"
                     
@@ -520,8 +530,8 @@ module Code_Gen : CODE_GEN = struct
                                                                                         
                     | Set'(Var' (VarBound (_ , major , minor)) , _val) -> (gen _val) ^ "\n" ^
                                                                                                     "mov rbx , qword [rbp + 8 * 2]\n" ^
-                                                                                                    "mov rbx , qword [rbx + 8 * " ^ (string_of_int major) ^ " ]\n" ^
-                                                                                                    "mov qword [rbx + 8 * " ^ (string_of_int minor) ^ " ]\n" ^
+                                                                                                    "mov rbx , qword [TYPE_SIZE + WORD_SIZE + rbx + 8 * " ^ (string_of_int major) ^ " ]\n" ^
+                                                                                                    "mov qword [TYPE_SIZE + WORD_SIZE + rbx + 8 * " ^ (string_of_int minor) ^ " ], rax\n" ^
                                                                                                     "mov rax , SOB_VOID_ADDRESS"
                                                                                                     
                     | Set'(Var'(VarFree (v)) , _val) -> (gen _val) ^ "\n" ^
@@ -560,7 +570,7 @@ module Code_Gen : CODE_GEN = struct
                                                         (generate_lambda params generated_body "" !lambda_counter)
 
                     |LambdaOpt'(params, opt, body) -> let generated_body = gen body in 
-                                                            (generate_lambda (params @ [opt]) generated_body (stack_adjustment params !lambda_counter) !lambda_counter)
+                                                            (generate_lambda params generated_body (stack_adjustment params [opt] !lambda_counter) !lambda_counter)
 
                                                             
                     | BoxGet' (v) -> (gen (Var'(v))) ^ "\n" ^
@@ -597,7 +607,8 @@ module Code_Gen : CODE_GEN = struct
                     "add rsp , 8 * 1 \n" ^
                     "pop rbx \n" ^
                     "shl rbx , 3 \n" ^
-                    "add rsp , rbx \n"
+                    "add rsp , rbx \n" ^
+                    "for_DEBUG_0:"
                     
         and applic_tp_gen _e _args = 
             let folder element acc = (acc ^ (gen element) ^ "\n" ^ "push rax \n") in
