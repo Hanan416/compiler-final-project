@@ -202,14 +202,6 @@ let rec _expr_ sexp = dis_tag_list [_constants_ ;_variables_ ;_conditionals_; _d
                             | Pair(Symbol(s), Nil) -> ""
                             | Pair(Symbol(s), rest) -> _extract_opt_params_ rest 
                             | _ -> raise X_syntax_error
-    
-    (*
-    and _lambda_ sexp = match sexp with
-                            | Pair (Symbol("lambda"), Pair(Pair(params, Symbol(opt)), body)) -> _lambda_opt_helper params opt body 
-                            | Pair(Symbol("lambda"), Pair(Symbol(vs),body)) -> _lambda_opt_helper Nil vs body
-                            | Pair(Symbol("lambda"), Pair(params, body)) ->  (_lambda_simple_helper params body) 
-                            | _ -> raise X_syntax_error
-    *)
 
     and _lambda_simple_ sexp = match sexp with
                             | Pair(Symbol("lambda"), Pair(params, Nil)) -> raise X_syntax_error

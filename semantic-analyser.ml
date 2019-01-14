@@ -66,7 +66,6 @@ module type SEMANTICS = sig
   val annotate_lexical_addresses : expr -> expr'
   val annotate_tail_calls : expr' -> expr'
   val box_set : expr' -> expr'
-  (* val get_occ_tuple : string -> expr' -> (string, int list, int list)  *)
 end;;
 
 module Semantics : SEMANTICS = struct
@@ -210,10 +209,6 @@ let wrap_param_as_var_param param params =
 let rewrite_in_box_form var_tag_param = match var_tag_param with
   | Var'(VarParam(_var,minor)) -> Set'(Var'(VarParam(_var,minor)), Box'(VarParam(_var,minor)))
   |_ -> raise X_syntax_error;;
-
-(* let fold_user_defined acc reducer lst = match lst with 
-  | [] -> []
-  | h :: t -> (reducer acc h) @ fold_user_defined  *)
 
 (*---------------------------The Boxing Algorithm:-------------------------------------*)
 

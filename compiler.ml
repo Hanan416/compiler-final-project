@@ -93,8 +93,6 @@ code_fragment:
 for_debug:
  ";;
 
-(*WARNING: has high use of the given code!!!!*)
-
 let epilogue = "
     car: 
       push rbp

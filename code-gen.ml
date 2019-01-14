@@ -624,23 +624,21 @@ module Code_Gen : CODE_GEN = struct
                                                                         "mov qword [ fvar_tbl + " ^ (string_of_int (retrieve_fvar_label v fvars)) ^ " ] , rax \n" ^
                                                                         "mov rax , SOB_VOID_ADDRESS"
                                                                         
-                    | Applic'(_e , _args) -> (applic_gen _e _args)
-                    
+                    | Applic'(_e , _args) -> let folder element acc = (acc ^ (gen element)^ "\n" ^ "push rax \n") in
+                                                let push_args_str = (List.fold_right folder _args "") in
+                                                push_args_str ^ "push " ^ (string_of_int (List.length _args)) ^ "\n" ^
+                                                (gen _e) ^ "\n" ^
+                                                "push qword [rax + TYPE_SIZE] \n" ^
+                                                "call qword [rax + TYPE_SIZE + WORD_SIZE] \n" ^
+                                                "add rsp , 8 * 1 \n" ^
+                                                "pop rbx \n" ^
+                                                "shl rbx , 3 \n" ^
+                                                "add rsp , rbx \n"
+                                                        
                     | ApplicTP' (_e , _args) -> (applic_tp_gen _e _args)
 
                     | _ -> raise X_syntax_error 
-                    
-        and applic_gen _e _args = 
-            let folder element acc = (acc ^ (gen element)^ "\n" ^ "push rax \n") in
-                let push_args_str = (List.fold_right folder _args "") in
-                    push_args_str ^ "push " ^ (string_of_int (List.length _args)) ^ "\n" ^
-                    (gen _e) ^ "\n" ^
-                    "push qword [rax + TYPE_SIZE] \n" ^
-                    "call qword [rax + TYPE_SIZE + WORD_SIZE] \n" ^
-                    "add rsp , 8 * 1 \n" ^
-                    "pop rbx \n" ^
-                    "shl rbx , 3 \n" ^
-                    "add rsp , rbx \n"
+            
                     
         and applic_tp_gen _e _args = 
             let applic_tp_loop_label = "applic_tp_loop" ^ (string_of_int !applic_tp_counter) in
@@ -693,112 +691,6 @@ module Code_Gen : CODE_GEN = struct
         in
         gen e;;
         
-  
-  (********************************** functions for printing - delete these *************************************)
-  
-   let rec print_sexpr = fun sexprObj ->
-  match sexprObj  with
-    | Bool(true) -> "Bool(true)"
-    | Bool(false) -> "Bool(false)"
-    | Nil -> "Nil"
-    | Number(Int(e)) -> Printf.sprintf "Number(Int(%d))" e
-    | Number(Float(e)) -> Printf.sprintf "Number(Float(%f))" e
-    | Char(e) -> Printf.sprintf "Char(%c)" e
-    | String(e) -> Printf.sprintf "String(\"%s\")" e
-    | Symbol(e) -> Printf.sprintf "Symbol(\"%s\")" e
-    | Pair(e,s) -> Printf.sprintf "Pair(%s,%s)" (print_sexpr e) (print_sexpr s) 
-    | Vector(list)-> Printf.sprintf "Vector(%s)" (print_sexprs_as_list list)
-
-and print_const = fun const ->
-  match const with
-    | Void -> "Void"
-    | Sexpr(s) -> print_sexpr s
-
-and print_sexprs = fun sexprList -> 
-  match sexprList with
-    | [] -> ""
-    | head :: tail -> (print_sexpr head) ^ "," ^ (print_sexprs tail)
-
-and print_consts = fun constsList -> 
-  match constsList with
-    | [] -> ""
-    | head :: tail -> (print_const head) ^ "," ^ (print_consts tail)
-
-and print_sexprs_as_list = fun sexprList ->
-  let sexprsString = print_sexprs sexprList in
-    "[ " ^ sexprsString ^ " ]"
-
-and print_consts_as_list = fun constsList ->
-  let constString = print_consts constsList in
-    "[ " ^ constString ^ " ]"
-
-and print_vars = fun varList ->
-	match varList with
-	| [] -> ""
-	| head:: tail -> (print_var head) ^ ", " ^ (print_vars tail)
-
-and print_varfree_as_list = fun varfreeList ->
-  let varString = print_vars varfreeList in
-    "[ " ^ varString ^ " ]"
-
-and print_expr = fun exprObj ->
-  match exprObj  with
-    | Const'(Void) -> "Const(Void)"
-    | Const'(Sexpr(x)) -> Printf.sprintf "Const(Sexpr(%s))" (print_sexpr x)
-    | Var'(VarParam(x, indx)) -> Printf.sprintf "VarParam(\"%s\", %d)" x indx
-    | Var'(VarBound(x, indx, level)) -> Printf.sprintf "VarBound(\"%s\" %d %d)" x indx level
-    | Var'(VarFree(x)) -> Printf.sprintf "VarFree(\"%s\" )" x
-    | If'(test,dit,dif) -> Printf.sprintf "If(%s,%s,%s)" (print_expr test) (print_expr dit) (print_expr dif)
-    | Seq'(ls) -> Printf.sprintf "Seq(%s)" (print_exprs_as_list ls)
-    | Set'(var,value) -> Printf.sprintf "Set(%s,%s)" (print_expr var) (print_expr value)
-    | Def'(var,value) -> Printf.sprintf "Def(%s,%s)" (print_expr var) (print_expr value)
-    | Or'(ls) -> Printf.sprintf "Or(%s)" (print_exprs_as_list ls)
-    | LambdaSimple'(args,body) -> Printf.sprintf "LambdaSimple(%s,%s)" (print_strings_as_list args) (print_expr body)
-    | LambdaOpt'(args,option_arg,body) -> Printf.sprintf "LambdaOpt(%s,%s,%s)" (print_strings_as_list args) option_arg (print_expr body)
-    | Applic'(proc,params) -> Printf.sprintf "Applic(%s,%s)" (print_expr proc) (print_exprs_as_list params) 
-    | ApplicTP'(proc,params) -> Printf.sprintf "ApplicTP(%s,%s)" (print_expr proc) (print_exprs_as_list params) 
-    | Box'(variable) -> Printf.sprintf "Box'(\"%s\" )" (print_var variable)
-    | BoxGet'(variable) -> Printf.sprintf "BoxGet'(\"%s\" )" (print_var variable)
-    | BoxSet'(variable, expr) -> Printf.sprintf "BoxSet'(\"%s\", %s )" (print_var variable) (print_expr expr)
-
-and print_var = fun x ->
-	match x with
-	| VarFree(str) -> Printf.sprintf "VarFree(%s)" str
-	| VarParam(str, int1) -> Printf.sprintf "VarParam(%s)" str
-	| VarBound(str, int1, int2) -> Printf.sprintf "VarBound(%s)" str
-and 
-
-print_exprs = fun exprList -> 
-  match exprList with
-    | [] -> ""
-    | head :: [] -> (print_expr head) 
-    | head :: tail -> (print_expr head) ^ "; " ^ (print_exprs tail)
-
-and print_exprs_as_list = fun exprList ->
-  let exprsString = print_exprs exprList in
-    "[ " ^ exprsString ^ " ]"
-
-and print_strings = fun stringList -> 
-  match stringList with
-    | [] -> ""
-    | head :: [] -> head 
-    | head :: tail -> head ^ "; " ^ (print_strings tail)
-
-and print_strings_as_list = fun stringList ->
-  let stringList = print_strings stringList in
-    "[ " ^ stringList ^ " ]";;
-
-let rec printThreesomesList lst =
-  match lst with
-    | [] -> ()
-    | ((name, index), str)::cdr -> print_string (print_const name); print_string " , "; print_int index ; print_string (" "^str^" \n"); printThreesomesList cdr;;
-    
-   (* let bgbg = run_semantics (tag_parse_expression(Reader.read_sexpr("
-    (+ 5 6)
-    ")));;
-    
-    (print_string (generate (make_consts_tbl [bgbg]) (make_fvars_tbl [bgbg]) (bgbg)));; *)
-
 end;;
 
 
